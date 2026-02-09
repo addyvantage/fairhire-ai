@@ -1,10 +1,12 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 import { createJobDescription, login, register } from "@/lib/api";
 
 type ApiResult = Record<string, unknown> | null;
+
+const TOKEN_KEY = "fairhire_access_token";
 
 export default function HomePage() {
   const [email, setEmail] = useState("founder@fairhire.ai");
@@ -19,17 +21,28 @@ export default function HomePage() {
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ApiResult>(null);
-  const [error, setError] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [jdError, setJdError] = useState("");
+
+  // Rehydrate token from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(TOKEN_KEY);
+    if (stored) {
+      setToken(stored);
+    }
+  }, []);
 
   const handleRegister = async (event: FormEvent) => {
     event.preventDefault();
     setLoading(true);
-    setError("");
+    setAuthError("");
     try {
       const data = await register(email, password);
       setResult(data);
     } catch (err) {
-      setError((err as Error).message);
+      const msg = (err as Error).message;
+      console.error("Register failed:", err);
+      setAuthError(msg);
     } finally {
       setLoading(false);
     }
@@ -38,13 +51,16 @@ export default function HomePage() {
   const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
     setLoading(true);
-    setError("");
+    setAuthError("");
     try {
       const data = await login(email, password);
       setToken(data.access_token);
+      localStorage.setItem(TOKEN_KEY, data.access_token);
       setResult(data);
     } catch (err) {
-      setError((err as Error).message);
+      const msg = (err as Error).message;
+      console.error("Login failed:", err);
+      setAuthError(msg);
     } finally {
       setLoading(false);
     }
@@ -52,8 +68,12 @@ export default function HomePage() {
 
   const handleCreateJd = async (event: FormEvent) => {
     event.preventDefault();
+    if (!token) {
+      setJdError("Not authenticated. Please log in first.");
+      return;
+    }
     setLoading(true);
-    setError("");
+    setJdError("");
     try {
       const data = await createJobDescription(token, {
         title,
@@ -62,7 +82,9 @@ export default function HomePage() {
       });
       setResult(data);
     } catch (err) {
-      setError((err as Error).message);
+      const msg = (err as Error).message;
+      console.error("Create JD failed:", err);
+      setJdError(msg);
     } finally {
       setLoading(false);
     }
@@ -114,6 +136,7 @@ export default function HomePage() {
           </button>
         </form>
         {token ? <p>Token acquired.</p> : null}
+        {authError ? <p style={{ color: "red" }}>{authError}</p> : null}
       </section>
 
       <section>
@@ -134,13 +157,16 @@ export default function HomePage() {
             onChange={(e) => setDescriptionText(e.target.value)}
             rows={5}
           />
-          <button type="submit" disabled={loading || !token}>
+          <button type="submit" disabled={loading}>
             Save JD
           </button>
         </form>
+        {!token && !jdError ? (
+          <p style={{ color: "orange" }}>Log in before saving a job description.</p>
+        ) : null}
+        {jdError ? <p style={{ color: "red" }}>{jdError}</p> : null}
       </section>
 
-      {error ? <p>{error}</p> : null}
       {result ? <pre>{JSON.stringify(result, null, 2)}</pre> : null}
     </main>
   );

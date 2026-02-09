@@ -30,14 +30,28 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.warning("Database unavailable at startup — skipping table creation")
 
-    # --- Redis ---
+    # --- Redis (async client for cache / general use) ---
     redis_manager = RedisManager()
     try:
         await redis_manager.connect()
         application.state.redis = redis_manager
+        logger.info("Redis async client connected")
     except Exception:
         logger.warning("Redis unavailable at startup — continuing without Redis")
         application.state.redis = redis_manager  # store anyway; callers check .ping()
+
+    # --- Redis connectivity check for RQ (sync client) ---
+    try:
+        from app.workers.queue import get_redis_connection
+
+        sync_conn = get_redis_connection()
+        sync_conn.close()
+        logger.info("Redis sync client (RQ) connectivity verified")
+    except Exception:
+        logger.warning(
+            "Redis sync client unavailable — async analysis queue will not function "
+            "until Redis is restored"
+        )
 
     yield
 

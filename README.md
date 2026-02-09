@@ -1,82 +1,176 @@
-# FairHire-AI Phase 1
+# FairHire-AI
 
-FairHire-AI is a SaaS-style resume intelligence and hiring bias analysis platform designed to bring transparency and equity to the recruitment process. By leveraging advanced AI analysis, it aims to uncover hidden biases in resume screening and Applicant Tracking Systems (ATS), empowering candidates with actionable insights to navigate the hiring landscape effectively.
+AI-powered resume intelligence and hiring bias analysis platform. Built as a portfolio-grade, production-style system demonstrating engineering rigor, scalability, and modern Python/TypeScript best practices.
 
-This platform is a portfolio-grade, production-style system built to demonstrate engineering rigor and scalability, not for commercial use.
+## Architecture
 
-## Phase 1 Scope & Goals
+```
+┌────────────┐     ┌────────────┐     ┌────────────┐
+│  Frontend   │────▶│  Backend   │────▶│ PostgreSQL │
+│  Next.js    │     │  FastAPI   │     │            │
+│  :3000      │     │  :8000     │     │  :5432     │
+└────────────┘     └─────┬──────┘     └────────────┘
+                         │
+                    ┌────┴─────┐
+                    │  Redis   │
+                    │  :6379   │
+                    └────┬─────┘
+                         │
+                   ┌─────┴──────┐
+                   │  RQ Worker │
+                   │  (async    │
+                   │   analysis)│
+                   └────────────┘
 
-The current phase focuses on establishing a robust, production-ready foundation for future development. This includes setting up the core infrastructure, implementing a scalable backend architecture, and creating a responsive frontend scaffold.
+Observability:
+  Prometheus  :9090   ──▶  Grafana  :3001
+```
 
-### Key Objectives:
--   **Infrastructure Setup:** Dockerized environment for seamless deployment and development.
--   **Backend Implementation:** High-performance API service using FastAPI and PostgreSQL.
--   **Frontend Development:** Next.js application structure ready for component integration.
--   **Production Readiness:** Adherence to best practices in code organization, security, and scalability.
+**Backend:** FastAPI, SQLAlchemy (async), PostgreSQL, Redis, RQ, sentence-transformers, structlog
+**Frontend:** Next.js 14, React 18, TypeScript
+**Infrastructure:** Docker Compose, Prometheus, Grafana
 
-## Architecture & Tech Stack
-
-The system is architected as a modern monolith, designed for eventual microservices separation if needed.
-
--   **Backend:**
-    -   **Framework:** FastAPI (Python) for high performance and async capabilities.
-    -   **Database:** PostgreSQL for robust data persistence.
-    -   **ORM:** SQLAlchemy / Pydantic for data modeling and validation.
--   **Frontend:**
-    -   **Framework:** Next.js (TypeScript) for server-side rendering and static site generation.
-    -   **Styling:** Tailwind CSS (planned) for utility-first styling.
--   **Infrastructure:**
-    -   **Containerization:** Docker & Docker Compose for consistent environments.
-
-## Local Development
+## Quick Start
 
 ### Prerequisites
--   Docker and Docker Compose
--   Node.js (optional, for local frontend runs)
--   Python 3.10+ (optional, for local backend runs)
 
-### Quick Start with Docker (Recommended)
-1.  Clone the repository.
-2.  Navigate to the project root.
-3.  Run the application stack:
-    ```bash
-    docker-compose up --build
-    ```
-4.  Access the services:
-    -   **Frontend:** `http://localhost:3000`
-    -   **Backend API:** `http://localhost:8000`
-    -   **API Documentation:** `http://localhost:8000/docs` (Swagger UI)
+- Docker and Docker Compose v2+
+- Make (optional but recommended)
 
-### Running ServicesIndividually
+### One-command startup
 
-#### Backend
-1.  Navigate to the `backend` directory.
-2.  Install dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
-3.  Start the server:
-    ```bash
-    uvicorn app.main:app --reload
-    ```
+```bash
+make dev
+```
 
-#### Frontend
-1.  Navigate to the `frontend` directory.
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-3.  Start the development server:
-    ```bash
-    npm run dev
-    ```
+This builds and starts all seven services in the background:
+
+| Service    | URL                          | Purpose                        |
+|------------|------------------------------|--------------------------------|
+| Backend    | http://localhost:8000        | FastAPI REST API               |
+| Swagger UI | http://localhost:8000/docs   | Interactive API documentation  |
+| Frontend   | http://localhost:3000        | Next.js application            |
+| Redis      | localhost:6379               | Cache + job queue broker       |
+| PostgreSQL | localhost:5432               | Primary datastore              |
+| Prometheus | http://localhost:9090        | Metrics collection             |
+| Grafana    | http://localhost:3001        | Dashboards (admin/admin)       |
+
+### Verify the stack
+
+```bash
+make health
+```
+
+Runs `scripts/healthcheck.py` which checks TCP connectivity (Postgres, Redis) and HTTP reachability (backend, frontend, Prometheus, Grafana) with automatic retries.
+
+### Without Make
+
+```bash
+docker compose up --build -d
+python scripts/healthcheck.py
+```
+
+## Makefile Reference
+
+| Command         | Description                                     |
+|-----------------|-------------------------------------------------|
+| `make dev`      | Build and start all services                    |
+| `make stop`     | Stop all services                               |
+| `make clean`    | Stop all services and remove volumes            |
+| `make build`    | Build images without starting                   |
+| `make logs`     | Tail logs for all services                      |
+| `make logs-backend` | Tail backend logs only                      |
+| `make logs-worker`  | Tail worker logs only                        |
+| `make logs-redis`   | Tail Redis logs only                         |
+| `make ps`       | Show running containers                         |
+| `make health`   | Run healthcheck against running stack           |
+| `make test`     | Run backend tests locally (requires virtualenv) |
+
+## Configuration
+
+All backend settings are driven by environment variables. Defaults are defined in `backend/app/core/config.py` and can be overridden via `backend/.env`.
+
+See `backend/.env.example` for documentation of all available settings.
+
+### Key settings
+
+| Variable                  | Default                    | Description                           |
+|---------------------------|----------------------------|---------------------------------------|
+| `DATABASE_URL`            | `postgresql+asyncpg://...` | Async PostgreSQL connection string    |
+| `REDIS_URL`               | `redis://redis:6379/0`     | Redis connection string               |
+| `SECRET_KEY`              | (change in production)     | JWT signing secret                    |
+| `EMBEDDING_MODEL_NAME`    | `all-MiniLM-L6-v2`        | sentence-transformers model           |
+| `QUEUE_NAME`              | `fairhire:analysis`        | RQ queue name                         |
+| `LOG_FORMAT`              | `json`                     | `json` or `console`                   |
+
+## Project Structure
+
+```
+.
+├── backend/
+│   ├── app/
+│   │   ├── api/             # Route handlers
+│   │   ├── core/            # Config, logging, security
+│   │   ├── db/              # Database session and base
+│   │   ├── middleware/       # Request logging middleware
+│   │   ├── models/          # SQLAlchemy models
+│   │   ├── queue/           # Async Redis connection manager
+│   │   ├── schemas/         # Pydantic request/response schemas
+│   │   ├── services/        # Business logic (analysis, embeddings, etc.)
+│   │   ├── storage/         # File uploads
+│   │   └── workers/         # RQ worker, job handlers, queue helpers
+│   ├── tests/               # pytest test suite
+│   ├── Dockerfile           # Backend API image
+│   ├── Dockerfile.worker    # RQ worker image
+│   └── requirements.txt
+├── frontend/
+│   ├── src/                 # Next.js pages and components
+│   ├── Dockerfile
+│   └── package.json
+├── infra/
+│   └── prometheus.yml       # Prometheus scrape config
+├── scripts/
+│   └── healthcheck.py       # Stack healthcheck script
+├── docker-compose.yml
+├── Makefile
+└── README.md
+```
+
+## Development
+
+### Running tests
+
+```bash
+# Inside the backend directory (with virtualenv activated)
+cd backend
+pip install -r requirements.txt
+python -m pytest tests/ -v
+
+# Or via Make
+make test
+```
+
+### Viewing logs
+
+```bash
+# All services
+make logs
+
+# Specific service
+make logs-backend
+make logs-worker
+```
+
+### Rebuilding after code changes
+
+Backend and worker containers mount `./backend/app` as a volume, so code changes to Python files are reflected immediately (uvicorn auto-reloads for the backend). For dependency changes:
+
+```bash
+make dev  # re-builds images
+```
 
 ## Roadmap
 
--   **Phase 1:** Foundation & Infrastructure Setup (Current - Complete)
--   **Phase 2:** Resume Parsing Engine & Candidate Profile Management (Planned)
--   **Phase 3:** Bias Detection Algorithms & Analysis Pipeline (Planned)
--   **Phase 4:** User Dashboard, Reporting & Visualization (Planned)
-
----
-*Note: This repository contains the source code for Phase 1 of the FairHire-AI project.*
+- **Phase 1:** Foundation & Infrastructure ✅
+- **Phase 2-3:** Embeddings, Async Queue, Observability ✅ (current)
+- **Phase 4:** Multi-Tenant SaaS, RBAC, Organizations (planned)

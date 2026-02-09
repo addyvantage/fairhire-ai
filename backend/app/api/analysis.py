@@ -9,10 +9,21 @@ from app.models.analysis import AnalysisRun
 from app.models.job_description import JobDescription
 from app.models.resume import Resume
 from app.models.user import User
-from app.schemas.analysis import AnalysisRequest, AnalysisResponse
+from app.schemas.analysis import (
+    AnalysisRequest,
+    AnalysisResponse,
+    AsyncAnalysisResponse,
+    JobStatusResponse,
+)
 from app.services.analysis_orchestrator import AnalysisOrchestrator
+from app.services.async_analysis import enqueue_analysis, get_job_status
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
+
+
+# ---------------------------------------------------------------------------
+# Existing synchronous endpoint (backward compatible)
+# ---------------------------------------------------------------------------
 
 
 @router.post("/run", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED)
@@ -67,5 +78,61 @@ async def run_analysis(
         bias_detection=output["bias_detection"],
         extracted_resume_skills=output["extracted_resume_skills"],
         extracted_jd_skills=output["extracted_jd_skills"],
+        created_at=analysis.created_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Async endpoints (new)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/async", response_model=AsyncAnalysisResponse, status_code=status.HTTP_202_ACCEPTED)
+async def submit_async_analysis(
+    payload: AnalysisRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> AsyncAnalysisResponse:
+    """Submit an analysis for asynchronous background processing.
+
+    Returns HTTP 202 with the job tracking information.
+    Poll ``GET /analysis/jobs/{job_id}`` for status and results.
+    """
+    analysis = await enqueue_analysis(
+        user_id=user.id,
+        resume_id=payload.resume_id,
+        job_description_id=payload.job_description_id,
+        db=db,
+    )
+    return AsyncAnalysisResponse(
+        analysis_id=analysis.id,
+        job_id=analysis.job_id,
+        status=analysis.status,
+        created_at=analysis.created_at,
+    )
+
+
+@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+async def poll_job_status(
+    job_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> JobStatusResponse:
+    """Poll the status of an async analysis job.
+
+    Returns the current status, and the full result payload once completed.
+    """
+    analysis = await get_job_status(
+        user_id=user.id,
+        job_id=job_id,
+        db=db,
+    )
+    return JobStatusResponse(
+        analysis_id=analysis.id,
+        job_id=analysis.job_id,
+        status=analysis.status,
+        overall_score=analysis.overall_score,
+        result_payload=analysis.result_payload,
+        error_message=analysis.error_message,
         created_at=analysis.created_at,
     )
