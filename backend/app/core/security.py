@@ -2,27 +2,28 @@ import hashlib
 from base64 import b64encode
 from datetime import UTC, datetime, timedelta
 
+import bcrypt
 from jose import jwt
-from passlib.context import CryptContext
 
 from app.core.config import get_settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+def _prehash(password: str) -> bytes:
+    """SHA-256 pre-hash so bcrypt never receives >72 bytes.
 
-def _prehash(password: str) -> str:
-    """SHA-256 pre-hash so bcrypt never receives >72 bytes."""
-    return b64encode(hashlib.sha256(password.encode("utf-8")).digest()).decode("ascii")
+    Returns the base64-encoded digest as bytes, ready for bcrypt.
+    """
+    return b64encode(hashlib.sha256(password.encode("utf-8")).digest())
 
 
 class TokenService:
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
-        return pwd_context.verify(_prehash(plain_password), hashed_password)
+        return bcrypt.checkpw(_prehash(plain_password), hashed_password.encode("utf-8"))
 
     @staticmethod
     def hash_password(password: str) -> str:
-        return pwd_context.hash(_prehash(password))
+        return bcrypt.hashpw(_prehash(password), bcrypt.gensalt()).decode("utf-8")
 
     @staticmethod
     def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:

@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token, get_password_hash, verify_password
-from app.db.session import get_db
+from app.db.session import get_db_session as get_db
 from app.models.user import User
 from app.schemas.auth import TokenOut, UserCreate, UserLogin, UserOut
 

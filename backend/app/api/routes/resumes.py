@@ -1,49 +1,53 @@
-import os
+from pathlib import Path
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+
 from app.api.deps import get_current_user
-from app.core.config import settings
-from app.db.session import get_db
+from app.core.config import get_settings
+from app.db.session import get_db_session
 from app.models.resume import Resume
 from app.models.user import User
 from app.schemas.resume import ResumeOut
-from app.services.resume_parser import BasicResumeParser
-from app.utils.storage import LocalStorageService
+from app.services.resume_parser import ResumeParserService
 
 router = APIRouter()
-
-ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 
 
 @router.post("/upload", response_model=ResumeOut, status_code=status.HTTP_201_CREATED)
 async def upload_resume(
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
 ) -> Resume:
-    extension = os.path.splitext(file.filename or "")[1].lower()
-    if extension not in ALLOWED_EXTENSIONS:
+    allowed_ext = {".pdf", ".docx"}
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in allowed_ext:
         raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported")
 
     content = await file.read()
-    max_size_bytes = settings.max_upload_size_mb * 1024 * 1024
-    if len(content) > max_size_bytes:
-        raise HTTPException(status_code=413, detail="Uploaded file exceeds configured max size")
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    storage = LocalStorageService()
-    parser = BasicResumeParser()
+    settings = get_settings()
+    upload_dir = Path(settings.upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
 
-    stored_path = await storage.save_upload(file.filename or "resume", content)
-    extracted_text = await parser.parse(content, file.filename or "resume")
+    generated_name = f"{uuid4()}{ext}"
+    storage_path = upload_dir / generated_name
+    storage_path.write_bytes(content)
+
+    parser = ResumeParserService()
+    parsed_text = await parser.parse(file.filename or generated_name, content)
 
     resume = Resume(
-        user_id=current_user.id,
-        original_filename=file.filename or "resume",
-        stored_path=stored_path,
-        extracted_text=extracted_text,
+        user_id=user.id,
+        original_filename=file.filename or generated_name,
+        storage_path=str(storage_path),
+        parsed_text=parsed_text,
     )
     db.add(resume)
     await db.commit()
@@ -53,8 +57,7 @@ async def upload_resume(
 
 @router.get("", response_model=list[ResumeOut])
 async def list_resumes(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)
 ) -> list[Resume]:
-    result = await db.execute(select(Resume).where(Resume.user_id == current_user.id).order_by(Resume.created_at.desc()))
+    result = await db.execute(select(Resume).where(Resume.user_id == user.id).order_by(Resume.id.desc()))
     return list(result.scalars().all())
