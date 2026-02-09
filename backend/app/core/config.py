@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://redis:6379/0"
 
+    # Embedding
+    embedding_model_name: str = "all-MiniLM-L6-v2"
+    embedding_cache_l1_size: int = 1000
+    embedding_cache_ttl_seconds: int = 86400
+
     # Logging
     log_level: str = "INFO"
     log_format: str = "json"  # "json" | "console"
