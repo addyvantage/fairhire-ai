@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     upload_dir: str = "app/storage/uploads"
     allowed_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
+    # Redis
+    redis_url: str = "redis://redis:6379/0"
+
+    # Logging
+    log_level: str = "INFO"
+    log_format: str = "json"  # "json" | "console"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @field_validator("allowed_origins", mode="before")
