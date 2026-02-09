@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: fairhire_db
+    environment:
+      POSTGRES_USER: fairhire
+      POSTGRES_PASSWORD: fairhire
+      POSTGRES_DB: fairhire
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+    container_name: fairhire_backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fairhire:fairhire@db:5432/fairhire
+      UPLOAD_DIR: /app/app/storage/uploads
+    volumes:
+      - ./backend/app/storage/uploads:/app/app/storage/uploads
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: fairhire_frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
