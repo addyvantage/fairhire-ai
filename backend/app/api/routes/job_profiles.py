@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.api.deps import get_current_user
 from app.db.session import get_db_session
@@ -166,12 +166,12 @@ async def update_job_profile(
     return JobProfileOut.model_validate(profile)
 
 
-@router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_job_profile(
     profile_id: int,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> None:
+) -> Response:
     """Delete a user-owned job profile (templates cannot be deleted)."""
     result = await db.execute(
         select(JobProfile).where(
@@ -186,3 +186,4 @@ async def delete_job_profile(
 
     await db.delete(profile)
     await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
