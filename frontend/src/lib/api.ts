@@ -116,11 +116,17 @@ export type JobMatchResult = {
 export type JobTargetPreview = {
   role_title: string;
   normalized_title: string;
+  role_archetype: string;
   seniority_level: string;
   years_experience_required: {
     min: number | null;
     max: number | null;
   };
+  company_context: string[];
+  role_summary: string[];
+  constraints: string[];
+  requirements_hard: string[];
+  requirements_soft: string[];
   education_requirements: string[];
   certifications: string[];
   hard_requirements: string[];

@@ -424,6 +424,11 @@ export default function JobProfilesPage() {
                               value={`${parsePreview.required_skills.length} required`}
                             />
                           </div>
+                          <div className="grid gap-2 sm:grid-cols-3">
+                            <PreviewStat label="Archetype" value={parsePreview.role_archetype.replace("_", " ")} />
+                            <PreviewStat label="Responsibilities" value={`${parsePreview.responsibilities.length}`} />
+                            <PreviewStat label="Hard requirements" value={`${parsePreview.requirements_hard.length}`} />
+                          </div>
                           <div className="space-y-1">
                             <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                               Top hard requirements

@@ -1,11 +1,9 @@
-"""Rule-based job description parser.
+"""Deterministic job description parser.
 
-Extracts structured data from raw JD text:
-- Seniority level
-- Required vs optional skills
-- Experience years range
-- Responsibilities
-- Normalized title
+This parser is designed for messy real-world JDs and enforces:
+- explicit structural segmentation
+- strict seniority overrides for entry/apprentice roles
+- role-adaptive weighting metadata
 """
 
 from __future__ import annotations
@@ -27,12 +25,21 @@ from app.services.skill_taxonomy import (
 class ParsedJobDescription:
     role_title: str = ""
     normalized_title: str = ""
+    role_archetype: str = "general_business"
     seniority_level: str = "mid"
     years_experience_required: dict[str, int | None] = field(
         default_factory=lambda: {"min": None, "max": None}
     )
     education_requirements: list[str] = field(default_factory=list)
     certifications: list[str] = field(default_factory=list)
+
+    company_context: list[str] = field(default_factory=list)
+    role_summary: list[str] = field(default_factory=list)
+    responsibilities: list[str] = field(default_factory=list)
+    requirements_hard: list[str] = field(default_factory=list)
+    requirements_soft: list[str] = field(default_factory=list)
+    constraints: list[str] = field(default_factory=list)
+
     hard_requirements: list[str] = field(default_factory=list)
     soft_requirements: list[str] = field(default_factory=list)
     tools_and_technologies: list[str] = field(default_factory=list)
@@ -43,14 +50,9 @@ class ParsedJobDescription:
     weight_map: dict[str, float] = field(default_factory=dict)
     required_skills: list[str] = field(default_factory=list)
     optional_skills: list[str] = field(default_factory=list)
-    responsibilities: list[str] = field(default_factory=list)
     years_experience_min: int | None = None
     years_experience_max: int | None = None
 
-
-# ---------------------------------------------------------------------------
-# Title normalisation
-# ---------------------------------------------------------------------------
 
 _TITLE_VARIANTS: dict[str, str] = {
     "frontend developer": "frontend engineer",
@@ -74,7 +76,11 @@ _TITLE_VARIANTS: dict[str, str] = {
     "swe": "software engineer",
     "sde": "software engineer",
     "data analyst": "data analyst",
-    "business analyst": "data analyst",
+    "business analyst": "business analyst",
+    "financial analyst": "financial analyst",
+    "risk analyst": "risk analyst",
+    "operations analyst": "operations analyst",
+    "consulting analyst": "consulting analyst",
     "data engineer": "data engineer",
     "ml engineer": "ml engineer",
     "machine learning engineer": "ml engineer",
@@ -90,70 +96,107 @@ _TITLE_VARIANTS: dict[str, str] = {
     "product designer": "ux designer",
 }
 
-# ---------------------------------------------------------------------------
-# Seniority keywords
-# ---------------------------------------------------------------------------
+_ENTRY_OVERRIDE_RE = re.compile(
+    r"\b(intern|internship|trainee|apprentice|graduate|entry[\s-]?level|junior)\b",
+    re.IGNORECASE,
+)
 
-_SENIORITY_MAP: dict[str, str] = {
-    "intern": "intern",
-    "internship": "intern",
-    "junior": "junior",
-    "entry level": "junior",
-    "entry-level": "junior",
-    "associate": "junior",
-    "mid": "mid",
-    "mid-level": "mid",
-    "mid level": "mid",
-    "intermediate": "mid",
-    "senior": "senior",
-    "sr.": "senior",
-    "sr ": "senior",
-    "lead": "lead",
-    "tech lead": "lead",
-    "team lead": "lead",
-    "principal": "principal",
-    "staff": "staff",
-    "architect": "staff",
-    "distinguished": "staff",
-    "director": "staff",
-    "vp": "staff",
-}
-
-# ---------------------------------------------------------------------------
-# Experience years patterns
-# ---------------------------------------------------------------------------
+_SENIORITY_STRICT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b(principal|staff|distinguished)\b", re.IGNORECASE), "principal"),
+    (re.compile(r"\b(lead|team lead|tech lead)\b", re.IGNORECASE), "lead"),
+    (re.compile(r"\b(senior|sr\.?)\b", re.IGNORECASE), "senior"),
+    (re.compile(r"\b(mid[\s-]?level|intermediate|associate)\b", re.IGNORECASE), "mid"),
+]
 
 _EXP_RANGE_RE = re.compile(
-    r"(\d{1,2})\s*[-–—to]+\s*(\d{1,2})\s*(?:\+)?\s*years?",
+    r"(\d{1,2})\s*[-–—to]+\s*(\d{1,2})\s*(?:\+)?\s*(?:years?|yrs?)",
     re.IGNORECASE,
 )
 _EXP_MIN_RE = re.compile(
-    r"(\d{1,2})\s*\+?\s*years?\s*(?:of\s+)?(?:experience|exp)",
+    r"(\d{1,2})\s*\+?\s*(?:years?|yrs?)\s*(?:of\s+)?(?:experience|exp)",
     re.IGNORECASE,
 )
 _EXP_AT_LEAST_RE = re.compile(
-    r"(?:at\s+least|minimum|min)\s*(\d{1,2})\s*years?",
+    r"(?:at\s+least|minimum|min)\s*(\d{1,2})\s*(?:years?|yrs?)",
     re.IGNORECASE,
 )
 
-# ---------------------------------------------------------------------------
-# Section detection for required vs optional skills
-# ---------------------------------------------------------------------------
-
 _REQUIRED_MARKERS = re.compile(
-    r"(?:required|must[\s-]have|minimum|essential|need|mandatory)",
+    r"(?:required|must[\s-]?have|minimum qualifications?|mandatory|essential)",
     re.IGNORECASE,
 )
 _OPTIONAL_MARKERS = re.compile(
-    r"(?:nice[\s-]to[\s-]have|preferred|bonus|desirable|plus|optional|ideally)",
+    r"(?:preferred|nice[\s-]?to[\s-]?have|bonus|plus|desirable|optional)",
+    re.IGNORECASE,
+)
+_RESPONSIBILITY_MARKERS = re.compile(
+    r"(?:responsibilit|what you'?ll do|you will|day-to-day|key duties)",
+    re.IGNORECASE,
+)
+_SUMMARY_MARKERS = re.compile(
+    r"(?:about the role|role overview|position summary|summary)",
+    re.IGNORECASE,
+)
+_COMPANY_MARKERS = re.compile(
+    r"(?:about us|about company|our values|culture|benefits|perks|equal opportunity|eeo|diversity|mission)",
+    re.IGNORECASE,
+)
+_CONSTRAINT_MARKERS = re.compile(
+    r"(?:degree|location|hybrid|remote|onsite|contract|full[- ]?time|part[- ]?time|visa|authorized|work permit|years?|yrs?)",
     re.IGNORECASE,
 )
 
-# ---------------------------------------------------------------------------
-# Bullet extraction
-# ---------------------------------------------------------------------------
+_BULLET_RE = re.compile(r"^\s*(?:[-*•●◦▪]|\d+[.)]\s)")
+_ACTION_VERBS = (
+    "build",
+    "develop",
+    "design",
+    "analyze",
+    "support",
+    "implement",
+    "own",
+    "manage",
+    "collaborate",
+    "deliver",
+    "optimize",
+    "execute",
+    "report",
+    "monitor",
+    "improve",
+)
+_KNOWN_SECTION_HEADINGS = frozenset(
+    {
+        "about us",
+        "about the role",
+        "role overview",
+        "job summary",
+        "summary",
+        "responsibilities",
+        "key responsibilities",
+        "what you'll do",
+        "minimum qualifications",
+        "required qualifications",
+        "requirements",
+        "must have",
+        "preferred qualifications",
+        "nice to have",
+        "benefits",
+        "location",
+        "contract",
+    }
+)
 
-_BULLET_RE = re.compile(r"^\s*(?:[-*•●◦▪]|\d+[.)]\s)", re.MULTILINE)
+
+def _dedupe(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for item in items:
+        normalized = normalize_term(item)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        output.append(item.strip())
+    return output
 
 
 class JDParserService:
@@ -163,198 +206,326 @@ class JDParserService:
         result = ParsedJobDescription()
         result.role_title = title_hint.strip() or self._extract_title(raw_text)
         result.normalized_title = self._normalize_title(result.role_title)
-        result.seniority_level = self._extract_seniority(raw_text, result.role_title)
 
-        required, optional = self._extract_skills(raw_text)
+        segments = self._segment_jd(raw_text)
+        result.company_context = segments["company_context"]
+        result.role_summary = segments["role_summary"]
+        result.responsibilities = segments["responsibilities"] or self._extract_responsibilities(raw_text)
+        result.requirements_hard = segments["requirements_hard"]
+        result.requirements_soft = segments["requirements_soft"]
+        result.constraints = segments["constraints"]
+
+        result.hard_requirements = result.requirements_hard
+        result.soft_requirements = result.requirements_soft
+
+        seniority_source = " ".join(
+            [result.role_title, *result.role_summary, *result.requirements_hard, *result.constraints]
+        )
+        result.seniority_level = self._extract_seniority(
+            raw_text=seniority_source,
+            full_text=raw_text,
+            title=result.role_title,
+        )
+        result.role_archetype = self._infer_role_archetype(
+            title=result.role_title,
+            summary=result.role_summary,
+            requirements=result.requirements_hard + result.requirements_soft,
+        )
+
+        required, optional = self._extract_skills_from_segments(
+            hard_requirements=result.requirements_hard,
+            soft_requirements=result.requirements_soft,
+            responsibilities=result.responsibilities,
+        )
         result.required_skills = required
         result.optional_skills = optional
 
-        exp_min, exp_max = self._extract_experience_years(raw_text)
+        exp_min, exp_max = self._extract_experience_years(
+            "\n".join([*result.constraints, *result.requirements_hard, *result.requirements_soft, raw_text])
+        )
         result.years_experience_min = exp_min
         result.years_experience_max = exp_max
         result.years_experience_required = {"min": exp_min, "max": exp_max}
 
-        result.responsibilities = self._extract_responsibilities(raw_text)
-        result.hard_requirements, result.soft_requirements = self._extract_requirements(raw_text)
-        result.education_requirements = self._extract_education(raw_text)
-        result.certifications = self._extract_certifications(raw_text)
-        result.domain_keywords = self._extract_domain_keywords(raw_text, result.role_title)
-        result.soft_skills = self._extract_soft_skills(raw_text)
+        result.education_requirements = self._extract_education(
+            "\n".join([*result.constraints, *result.requirements_hard, *result.requirements_soft])
+        )
+        result.certifications = self._extract_certifications(
+            "\n".join([*result.constraints, *result.requirements_hard, *result.requirements_soft])
+        )
+        result.domain_keywords = self._extract_domain_keywords(
+            text="\n".join([*result.role_summary, *result.requirements_hard, *result.responsibilities]),
+            title=result.role_title,
+        )
+        result.soft_skills = self._extract_soft_skills(
+            "\n".join([*result.requirements_hard, *result.requirements_soft, *result.responsibilities])
+        )
 
-        result.tools_and_technologies = sorted(
-            {
-                *result.required_skills,
-                *result.optional_skills,
-                *self._extract_tools_from_requirements(result.hard_requirements, result.soft_requirements),
-            }
+        result.tools_and_technologies = _dedupe(
+            sorted(
+                {
+                    *result.required_skills,
+                    *result.optional_skills,
+                    *self._extract_tools_from_text(
+                        "\n".join([*result.requirements_hard, *result.requirements_soft, *result.responsibilities])
+                    ),
+                }
+            )
         )
         result.ats_keywords = self._extract_ats_keywords(result)
         result.responsibility_clusters = self._cluster_responsibilities(result.responsibilities)
         result.weight_map = self._infer_weight_map(
-            normalized_title=result.normalized_title,
-            domain_keywords=result.domain_keywords,
-            hard_requirements=result.hard_requirements,
-            responsibilities=result.responsibilities,
+            role_archetype=result.role_archetype,
+            seniority=result.seniority_level,
+            hard_requirement_count=len(result.requirements_hard),
+            responsibility_count=len(result.responsibilities),
         )
         return result
-
-    # -------------------------------------------------------------------
 
     @staticmethod
     def _extract_title(text: str) -> str:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         if not lines:
             return "Target role"
-        return lines[0][:120]
+        first = lines[0]
+        return first[:120]
 
     @staticmethod
     def _normalize_title(title: str) -> str:
         lower = title.strip().lower()
-        # Strip seniority prefixes for canonical lookup
         stripped = re.sub(
-            r"^(senior|sr\.?|junior|jr\.?|lead|principal|staff|intern)\s+",
+            r"^(senior|sr\.?|junior|jr\.?|lead|principal|staff|intern|apprentice|graduate)\s+",
             "",
             lower,
         )
         return _TITLE_VARIANTS.get(stripped, stripped)
 
-    @staticmethod
-    def _extract_seniority(text: str, title: str) -> str:
-        combined = f"{title} {text}".lower()
-        # Check title first (more reliable)
-        for keyword, level in _SENIORITY_MAP.items():
-            if keyword in title.lower():
-                return level
-        # Fall back to body text (first 500 chars more likely to have it)
-        snippet = combined[:500]
-        for keyword, level in _SENIORITY_MAP.items():
-            if keyword in snippet:
-                return level
-        return "mid"  # default
+    def _segment_jd(self, raw_text: str) -> dict[str, list[str]]:
+        sections: dict[str, list[str]] = {
+            "company_context": [],
+            "role_summary": [],
+            "responsibilities": [],
+            "requirements_hard": [],
+            "requirements_soft": [],
+            "constraints": [],
+        }
+        current_section = "role_summary"
+        lines = raw_text.splitlines()
+
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            line_no_bullet = _BULLET_RE.sub("", line).strip()
+            if len(line_no_bullet) < 3:
+                continue
+            line_lower = line_no_bullet.lower()
+
+            if self._is_heading_line(line_no_bullet, raw_line):
+                if _COMPANY_MARKERS.search(line_lower):
+                    current_section = "company_context"
+                elif _RESPONSIBILITY_MARKERS.search(line_lower):
+                    current_section = "responsibilities"
+                elif _REQUIRED_MARKERS.search(line_lower):
+                    current_section = "requirements_hard"
+                elif _OPTIONAL_MARKERS.search(line_lower):
+                    current_section = "requirements_soft"
+                elif _SUMMARY_MARKERS.search(line_lower):
+                    current_section = "role_summary"
+                elif _CONSTRAINT_MARKERS.search(line_lower):
+                    current_section = "constraints"
+                continue
+
+            if self._is_company_context_line(line_lower):
+                sections["company_context"].append(line_no_bullet)
+                continue
+
+            if self._is_constraint_line(line_lower):
+                sections["constraints"].append(line_no_bullet)
+
+            if _REQUIRED_MARKERS.search(line_lower):
+                sections["requirements_hard"].append(line_no_bullet)
+                current_section = "requirements_hard"
+                continue
+            if _OPTIONAL_MARKERS.search(line_lower):
+                sections["requirements_soft"].append(line_no_bullet)
+                current_section = "requirements_soft"
+                continue
+
+            if current_section in {"requirements_hard", "requirements_soft"}:
+                sections[current_section].append(line_no_bullet)
+                continue
+
+            if current_section == "company_context":
+                sections["company_context"].append(line_no_bullet)
+                continue
+
+            if self._looks_like_responsibility_line(line_no_bullet, raw_line):
+                sections["responsibilities"].append(line_no_bullet)
+                continue
+
+            if current_section == "responsibilities":
+                sections["responsibilities"].append(line_no_bullet)
+                continue
+
+            if len(sections["role_summary"]) < 8:
+                sections["role_summary"].append(line_no_bullet)
+            else:
+                sections["company_context"].append(line_no_bullet)
+
+        for key in sections:
+            sections[key] = _dedupe(sections[key])
+
+        return sections
 
     @staticmethod
-    def _extract_skills(text: str) -> tuple[list[str], list[str]]:
-        """Split skills into required and optional based on context.
+    def _is_heading_line(line_no_bullet: str, raw_line: str) -> bool:
+        stripped = raw_line.strip()
+        lower = line_no_bullet.lower().strip()
+        if not lower:
+            return False
+        if stripped.endswith(":"):
+            return True
+        if lower in _KNOWN_SECTION_HEADINGS:
+            return True
+        if len(line_no_bullet) <= 40 and line_no_bullet.isupper():
+            return True
+        return False
 
-        Strategy: split text at optional-marker headings. Skills found
-        before the first optional marker are 'required'; skills after
-        are 'optional'. If no markers found, all skills go to required.
-        """
+    @staticmethod
+    def _is_company_context_line(line_lower: str) -> bool:
+        if _COMPANY_MARKERS.search(line_lower):
+            return True
+        fluff_markers = (
+            "benefits",
+            "compensation",
+            "equal opportunity",
+            "our culture",
+            "our mission",
+            "our team",
+            "we are committed",
+        )
+        return any(marker in line_lower for marker in fluff_markers)
+
+    @staticmethod
+    def _is_constraint_line(line_lower: str) -> bool:
+        if _CONSTRAINT_MARKERS.search(line_lower):
+            return True
+        return bool(_EXP_RANGE_RE.search(line_lower) or _EXP_MIN_RE.search(line_lower) or _EXP_AT_LEAST_RE.search(line_lower))
+
+    @staticmethod
+    def _looks_like_responsibility_line(cleaned_line: str, raw_line: str) -> bool:
+        if _BULLET_RE.match(raw_line):
+            return True
+        lower = cleaned_line.lower()
+        return any(lower.startswith(verb + " ") for verb in _ACTION_VERBS)
+
+    @staticmethod
+    def _extract_seniority(*, raw_text: str, full_text: str, title: str) -> str:
+        joined = f"{title} {full_text}"
+        if _ENTRY_OVERRIDE_RE.search(joined):
+            return "entry"
+
+        title_lower = title.lower()
+        for pattern, level in _SENIORITY_STRICT_PATTERNS:
+            if pattern.search(title_lower):
+                return level
+
+        scannable = raw_text.lower()[:1600]
+        for pattern, level in _SENIORITY_STRICT_PATTERNS:
+            if pattern.search(scannable):
+                return level
+
+        return "mid"
+
+    @staticmethod
+    def _infer_role_archetype(
+        *,
+        title: str,
+        summary: list[str],
+        requirements: list[str],
+    ) -> str:
+        source = f"{title} {' '.join(summary)} {' '.join(requirements)}".lower()
+        if any(term in source for term in ("engineer", "developer", "devops", "sre", "ml", "frontend", "backend")):
+            return "engineering"
+        if any(term in source for term in ("data analyst", "analytics", "business intelligence", "reporting", "dashboard")):
+            return "data_analytics"
+        if any(term in source for term in ("finance", "financial", "risk", "fp&a", "accounting", "valuation")):
+            return "finance_risk"
+        if any(term in source for term in ("consult", "operations", "process improvement", "client engagement")):
+            return "consulting_ops"
+        if any(term in source for term in ("product manager", "product strategy", "roadmap")):
+            return "product"
+        return "general_business"
+
+    def _extract_skills_from_segments(
+        self,
+        *,
+        hard_requirements: list[str],
+        soft_requirements: list[str],
+        responsibilities: list[str],
+    ) -> tuple[list[str], list[str]]:
+        hard_text = "\n".join([*hard_requirements, *responsibilities])
+        soft_text = "\n".join(soft_requirements)
+
+        required = self._extract_skills_from_text(hard_text)
+        optional = self._extract_skills_from_text(soft_text)
+
+        required_set = set(required)
+        optional_clean = [item for item in optional if item not in required_set]
+        return required, optional_clean
+
+    @staticmethod
+    def _extract_skills_from_text(text: str) -> list[str]:
         text_lower = text.lower()
-        tokens = {tok.lower() for tok in re.findall(r"[a-zA-Z0-9.+#/-]+", text)}
-
-        def _find_skills_in(segment: str, segment_tokens: set[str]) -> list[str]:
-            seg_lower = segment.lower()
-            found: set[str] = set()
-            for skill in KNOWN_SKILLS:
-                if " " in skill:
-                    if skill in seg_lower:
-                        found.add(canonicalize_skill(skill))
-                else:
-                    if skill in segment_tokens:
-                        found.add(canonicalize_skill(skill))
-            for canonical, aliases in (
-                (key, expand_skill_aliases(key)) for key in KNOWN_SKILLS
-            ):
-                if canonical in found:
-                    continue
-                if any(alias in seg_lower for alias in aliases if " " in alias):
-                    found.add(canonical)
-            return sorted(found)
-
-        # Try to find an optional section boundary
-        optional_match = _OPTIONAL_MARKERS.search(text)
-        if optional_match:
-            boundary = optional_match.start()
-            required_section = text[:boundary]
-            optional_section = text[boundary:]
-
-            req_tokens = {
-                tok.lower()
-                for tok in re.findall(r"[a-zA-Z0-9.+#/-]+", required_section)
-            }
-            opt_tokens = {
-                tok.lower()
-                for tok in re.findall(r"[a-zA-Z0-9.+#/-]+", optional_section)
-            }
-
-            required = _find_skills_in(required_section, req_tokens)
-            optional_raw = _find_skills_in(optional_section, opt_tokens)
-            # Remove any skills already in required from optional
-            required_set = set(required)
-            optional = [s for s in optional_raw if s not in required_set]
-            return required, optional
-
-        # No optional boundary — all skills are required
-        all_skills = _find_skills_in(text_lower, tokens)
-        return all_skills, []
+        tokens = {token.lower() for token in re.findall(r"[a-zA-Z0-9.+#/-]+", text)}
+        found: set[str] = set()
+        for skill in KNOWN_SKILLS:
+            canonical = canonicalize_skill(skill)
+            aliases = expand_skill_aliases(canonical)
+            if any(alias in tokens for alias in aliases if " " not in alias):
+                found.add(canonical)
+                continue
+            if any(alias in text_lower for alias in aliases if " " in alias):
+                found.add(canonical)
+        return sorted(found)
 
     @staticmethod
     def _extract_experience_years(text: str) -> tuple[int | None, int | None]:
-        # Try range first: "3-5 years"
         range_match = _EXP_RANGE_RE.search(text)
         if range_match:
             lo = int(range_match.group(1))
             hi = int(range_match.group(2))
-            return (min(lo, hi), max(lo, hi))
+            return min(lo, hi), max(lo, hi)
 
-        # Try "X+ years of experience"
         min_match = _EXP_MIN_RE.search(text)
         if min_match:
             val = int(min_match.group(1))
-            return (val, val + 3)  # heuristic: X+ ≈ X to X+3
+            return val, val + 2
 
-        # Try "at least X years"
         at_least_match = _EXP_AT_LEAST_RE.search(text)
         if at_least_match:
             val = int(at_least_match.group(1))
-            return (val, val + 3)
+            return val, val + 2
 
-        return (None, None)
+        return None, None
 
     @staticmethod
     def _extract_responsibilities(text: str) -> list[str]:
-        """Extract bullet-point items as responsibilities."""
-        lines = text.split("\n")
+        lines = text.splitlines()
         responsibilities: list[str] = []
-
         for line in lines:
             stripped = line.strip()
             if not stripped:
                 continue
-            if _BULLET_RE.match(stripped):
-                # Remove the bullet prefix
-                cleaned = _BULLET_RE.sub("", stripped).strip()
-                if len(cleaned) > 10:  # skip very short fragments
-                    responsibilities.append(cleaned)
-
-        # Limit to a reasonable number
-        return responsibilities[:20]
-
-    @staticmethod
-    def _extract_requirements(text: str) -> tuple[list[str], list[str]]:
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        hard: list[str] = []
-        soft: list[str] = []
-
-        for line in lines:
-            normalized = re.sub(r"^\s*(?:[-*•●◦▪]|\d+[.)]\s)", "", line).strip()
-            if len(normalized) < 8:
+            cleaned = _BULLET_RE.sub("", stripped).strip()
+            if len(cleaned) < 10:
                 continue
-            line_lower = normalized.lower()
-            if _OPTIONAL_MARKERS.search(line_lower):
-                soft.append(normalized)
-                continue
-            if _REQUIRED_MARKERS.search(line_lower):
-                hard.append(normalized)
-                continue
-
-            if any(marker in line_lower for marker in ("responsible for", "you will", "you'll", "ability to")):
-                hard.append(normalized)
-            elif any(marker in line_lower for marker in ("preferred", "nice to have", "plus", "exposure to")):
-                soft.append(normalized)
-
-        return hard[:20], soft[:20]
+            lower = cleaned.lower()
+            if any(lower.startswith(verb + " ") for verb in _ACTION_VERBS) or _BULLET_RE.match(stripped):
+                responsibilities.append(cleaned)
+        return _dedupe(responsibilities)[:30]
 
     @staticmethod
     def _extract_education(text: str) -> list[str]:
@@ -407,21 +578,12 @@ class JDParserService:
         return sorted(extracted)
 
     @staticmethod
-    def _extract_tools_from_requirements(hard: list[str], soft: list[str]) -> list[str]:
-        combined = " ".join([*hard, *soft]).lower()
-        tokens = {token.lower() for token in re.findall(r"[a-zA-Z0-9.+#/-]+", combined)}
-        extracted: set[str] = set()
-        for skill in KNOWN_SKILLS:
-            if " " in skill and skill in combined:
-                extracted.add(skill)
-            elif skill in tokens:
-                extracted.add(skill)
-        return sorted(extracted)
+    def _extract_tools_from_text(text: str) -> list[str]:
+        return JDParserService._extract_skills_from_text(text)
 
     @staticmethod
     def _extract_ats_keywords(parsed: ParsedJobDescription) -> list[str]:
         keywords: set[str] = set()
-
         for term in [
             *parsed.required_skills,
             *parsed.optional_skills,
@@ -430,15 +592,13 @@ class JDParserService:
         ]:
             canonical = canonicalize_skill(term)
             keywords.add(canonical)
-            for alias in expand_skill_aliases(canonical):
-                keywords.add(alias)
+            keywords.update(expand_skill_aliases(canonical))
 
-        for requirement in [*parsed.hard_requirements, *parsed.soft_requirements]:
-            for token in re.findall(r"[a-zA-Z][a-zA-Z0-9+/.-]{2,}", requirement.lower()):
+        for phrase in [*parsed.requirements_hard, *parsed.requirements_soft]:
+            for token in re.findall(r"[a-zA-Z][a-zA-Z0-9+/.-]{2,}", phrase.lower()):
                 normalized = normalize_term(token)
                 if normalized in KNOWN_SKILLS or normalized in parsed.domain_keywords:
                     keywords.add(normalized)
-
         return sorted(keywords)
 
     @staticmethod
@@ -455,9 +615,9 @@ class JDParserService:
                 clusters["delivery_execution"].append(item)
             elif any(keyword in text for keyword in ("analyze", "model", "report", "insight", "measure")):
                 clusters["analysis_decisioning"].append(item)
-            elif any(keyword in text for keyword in ("stakeholder", "cross-functional", "client", "partner")):
+            elif any(keyword in text for keyword in ("stakeholder", "cross-functional", "client", "partner", "collaborate")):
                 clusters["collaboration_stakeholders"].append(item)
-            elif any(keyword in text for keyword in ("lead", "own", "mentor", "drive", "manage")):
+            elif any(keyword in text for keyword in ("lead", "mentor", "manage", "own", "drive")):
                 clusters["leadership_ownership"].append(item)
             else:
                 clusters["delivery_execution"].append(item)
@@ -466,45 +626,75 @@ class JDParserService:
     @staticmethod
     def _infer_weight_map(
         *,
-        normalized_title: str,
-        domain_keywords: list[str],
-        hard_requirements: list[str],
-        responsibilities: list[str],
+        role_archetype: str,
+        seniority: str,
+        hard_requirement_count: int,
+        responsibility_count: int,
     ) -> dict[str, float]:
-        role_source = f"{normalized_title} {' '.join(domain_keywords)}".lower()
-        base = {
-            "skills_tools": 0.35,
-            "responsibility_alignment": 0.25,
-            "experience": 0.15,
-            "domain_familiarity": 0.15,
-            "communication_quality": 0.10,
+        weight_profiles: dict[str, dict[str, float]] = {
+            "engineering": {
+                "skills_tools": 0.34,
+                "responsibility_alignment": 0.28,
+                "domain_familiarity": 0.08,
+                "seniority_fit": 0.10,
+                "experience_sufficiency": 0.12,
+                "resume_quality": 0.08,
+            },
+            "data_analytics": {
+                "skills_tools": 0.26,
+                "responsibility_alignment": 0.30,
+                "domain_familiarity": 0.14,
+                "seniority_fit": 0.08,
+                "experience_sufficiency": 0.14,
+                "resume_quality": 0.08,
+            },
+            "finance_risk": {
+                "skills_tools": 0.22,
+                "responsibility_alignment": 0.30,
+                "domain_familiarity": 0.18,
+                "seniority_fit": 0.08,
+                "experience_sufficiency": 0.14,
+                "resume_quality": 0.08,
+            },
+            "consulting_ops": {
+                "skills_tools": 0.16,
+                "responsibility_alignment": 0.33,
+                "domain_familiarity": 0.19,
+                "seniority_fit": 0.08,
+                "experience_sufficiency": 0.14,
+                "resume_quality": 0.10,
+            },
+            "product": {
+                "skills_tools": 0.20,
+                "responsibility_alignment": 0.31,
+                "domain_familiarity": 0.16,
+                "seniority_fit": 0.09,
+                "experience_sufficiency": 0.14,
+                "resume_quality": 0.10,
+            },
+            "general_business": {
+                "skills_tools": 0.22,
+                "responsibility_alignment": 0.30,
+                "domain_familiarity": 0.14,
+                "seniority_fit": 0.09,
+                "experience_sufficiency": 0.15,
+                "resume_quality": 0.10,
+            },
         }
+        base = dict(weight_profiles.get(role_archetype, weight_profiles["general_business"]))
 
-        if any(term in role_source for term in ("engineer", "developer", "ml", "devops")):
-            base["skills_tools"] = 0.42
-            base["responsibility_alignment"] = 0.23
-            base["experience"] = 0.15
-            base["domain_familiarity"] = 0.10
-            base["communication_quality"] = 0.10
-        elif any(term in role_source for term in ("finance", "financial", "risk", "analyst")):
-            base["skills_tools"] = 0.30
-            base["responsibility_alignment"] = 0.30
-            base["experience"] = 0.18
-            base["domain_familiarity"] = 0.15
-            base["communication_quality"] = 0.07
-        elif any(term in role_source for term in ("consulting", "consultant")):
-            base["skills_tools"] = 0.24
-            base["responsibility_alignment"] = 0.32
-            base["experience"] = 0.16
-            base["domain_familiarity"] = 0.16
-            base["communication_quality"] = 0.12
-
-        if len(hard_requirements) >= 10:
-            base["skills_tools"] = min(0.5, base["skills_tools"] + 0.03)
-            base["communication_quality"] = max(0.06, base["communication_quality"] - 0.01)
-        if len(responsibilities) >= 10:
+        if seniority == "entry":
+            base["skills_tools"] = max(0.15, base["skills_tools"] - 0.06)
             base["responsibility_alignment"] = min(0.36, base["responsibility_alignment"] + 0.02)
-            base["domain_familiarity"] = max(0.1, base["domain_familiarity"] - 0.01)
+            base["experience_sufficiency"] = max(0.10, base["experience_sufficiency"] - 0.04)
+            base["resume_quality"] = min(0.14, base["resume_quality"] + 0.03)
+
+        if hard_requirement_count >= 12:
+            base["skills_tools"] = min(0.38, base["skills_tools"] + 0.03)
+            base["resume_quality"] = max(0.06, base["resume_quality"] - 0.01)
+        if responsibility_count >= 12:
+            base["responsibility_alignment"] = min(0.38, base["responsibility_alignment"] + 0.02)
+            base["domain_familiarity"] = max(0.08, base["domain_familiarity"] - 0.01)
 
         total = sum(base.values()) or 1.0
         return {key: round(value / total, 3) for key, value in base.items()}

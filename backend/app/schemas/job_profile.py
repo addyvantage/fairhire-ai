@@ -62,8 +62,14 @@ class JobProfileParseRequest(BaseModel):
 class JobTargetPreview(BaseModel):
     role_title: str
     normalized_title: str
+    role_archetype: str
     seniority_level: str
     years_experience_required: dict[str, int | None]
+    company_context: list[str]
+    role_summary: list[str]
+    constraints: list[str]
+    requirements_hard: list[str]
+    requirements_soft: list[str]
     education_requirements: list[str]
     certifications: list[str]
     hard_requirements: list[str]
