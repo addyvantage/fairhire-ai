@@ -483,3 +483,283 @@ export async function triggerTargetedAnalysis(
   }
   return response.json();
 }
+
+export type StudioSourceType =
+  | "builder"
+  | "import_pdf"
+  | "import_docx"
+  | "import_text";
+
+export type StudioVersionKind = "base" | "tailored";
+
+export type ResumeStudioStructuredResume = {
+  header: {
+    name: string;
+    title: string;
+    email: string;
+    phone: string;
+    location: string;
+    links: Array<{ label: string; url: string }>;
+  };
+  summary: string;
+  skills: {
+    categories: Array<{ name: string; items: string[] }>;
+  };
+  experience: {
+    items: Array<{
+      company: string;
+      role: string;
+      location: string;
+      start: string;
+      end: string;
+      bullets: string[];
+      tech: string[];
+    }>;
+  };
+  projects: {
+    items: Array<{ name: string; link: string; bullets: string[]; tech: string[] }>;
+  };
+  education: {
+    items: Array<{
+      school: string;
+      degree: string;
+      start: string;
+      end: string;
+      notes: string[];
+    }>;
+  };
+  certifications: string[];
+  awards: string[];
+  ats_keywords: string[];
+  evidence_map: Record<string, string[]>;
+};
+
+export type StudioProject = {
+  id: number;
+  user_id: number;
+  title: string;
+  source_type: StudioSourceType;
+  base_resume_id: number | null;
+  created_at: string;
+  updated_at: string;
+  latest_version_id: number | null;
+  latest_version_kind: StudioVersionKind | null;
+  latest_version_created_at: string | null;
+  tailored_tags: string[];
+};
+
+export type StudioVersion = {
+  id: number;
+  project_id: number;
+  kind: StudioVersionKind;
+  job_profile_id: number | null;
+  jd_text_hash: string | null;
+  jd_structured_json: Record<string, unknown> | null;
+  resume_structured_json: ResumeStudioStructuredResume;
+  resume_render_html: string | null;
+  resume_plain_text: string | null;
+  score_snapshot_json: Record<string, unknown> | null;
+  template_name: string;
+  template_settings_json: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type StudioProjectDetail = {
+  project: StudioProject;
+  versions: StudioVersion[];
+};
+
+export type StudioExport = {
+  id: number;
+  version_id: number;
+  format: "pdf" | "docx";
+  status: "queued" | "processing" | "completed" | "failed";
+  job_id: string | null;
+  file_path: string | null;
+  download_url: string | null;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export function makeStudioExportDownloadUrl(exportId: number): string {
+  return `${API_BASE_URL}/studio/exports/${exportId}/download`;
+}
+
+export async function createStudioProject(
+  token: string,
+  payload: {
+    title: string;
+    source_type?: StudioSourceType;
+    base_resume_id?: number | null;
+  }
+): Promise<StudioProject> {
+  const response = await fetch(`${API_BASE_URL}/studio/projects`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to create studio project");
+  }
+  return response.json();
+}
+
+export async function listStudioProjects(token: string): Promise<StudioProject[]> {
+  const response = await fetch(`${API_BASE_URL}/studio/projects`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to fetch studio projects");
+  }
+  return response.json();
+}
+
+export async function getStudioProject(
+  token: string,
+  projectId: number
+): Promise<StudioProjectDetail> {
+  const response = await fetch(`${API_BASE_URL}/studio/projects/${projectId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to fetch studio project");
+  }
+  return response.json();
+}
+
+export async function importStudioProject(
+  token: string,
+  projectId: number,
+  options: { text?: string; file?: File | null }
+): Promise<{ project: StudioProject; version: StudioVersion }> {
+  const formData = new FormData();
+  if (options.text) formData.append("text", options.text);
+  if (options.file) formData.append("file", options.file);
+
+  const response = await fetch(`${API_BASE_URL}/studio/projects/${projectId}/import`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to import resume");
+  }
+  return response.json();
+}
+
+export async function createStudioVersion(
+  token: string,
+  projectId: number,
+  payload: {
+    source_version_id?: number;
+    kind?: StudioVersionKind;
+    job_profile_id?: number | null;
+    template_name?: string;
+    template_settings?: Record<string, unknown> | null;
+  }
+): Promise<StudioVersion> {
+  const response = await fetch(`${API_BASE_URL}/studio/projects/${projectId}/versions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to create studio version");
+  }
+  return response.json();
+}
+
+export async function updateStudioVersion(
+  token: string,
+  versionId: number,
+  payload: {
+    resume_structured_json: ResumeStudioStructuredResume;
+    template_name?: string;
+    template_settings?: Record<string, unknown> | null;
+  }
+): Promise<StudioVersion> {
+  const response = await fetch(`${API_BASE_URL}/studio/versions/${versionId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to save version");
+  }
+  return response.json();
+}
+
+export async function tailorStudioVersion(
+  token: string,
+  versionId: number,
+  payload: {
+    jd_text: string;
+    strict_mode?: boolean;
+    job_profile_id?: number | null;
+    template_name?: string;
+    template_settings?: Record<string, unknown> | null;
+  }
+): Promise<StudioVersion> {
+  const response = await fetch(`${API_BASE_URL}/studio/versions/${versionId}/tailor`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to tailor resume");
+  }
+  return response.json();
+}
+
+export async function requestStudioExport(
+  token: string,
+  versionId: number,
+  format: "pdf" | "docx"
+): Promise<StudioExport> {
+  const response = await fetch(
+    `${API_BASE_URL}/studio/versions/${versionId}/export?format=${format}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to queue export");
+  }
+  return response.json();
+}
+
+export async function getStudioExport(
+  token: string,
+  exportId: number
+): Promise<StudioExport> {
+  const response = await fetch(`${API_BASE_URL}/studio/exports/${exportId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to fetch export status");
+  }
+  return response.json();
+}

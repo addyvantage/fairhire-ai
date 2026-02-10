@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +12,7 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.db.base import Base
 from app.db.session import engine
+import app.models  # noqa: F401
 from app.middleware.request_logging import RequestLoggingMiddleware
 from app.queue.connection import RedisManager
 
@@ -50,6 +52,8 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
 
     # --- Database ---
     try:
+        Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
+        Path(settings.studio_export_dir).mkdir(parents=True, exist_ok=True)
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
             # Apply incremental schema migrations (idempotent)

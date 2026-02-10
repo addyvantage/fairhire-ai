@@ -44,10 +44,12 @@ services:
       REDIS_URL: redis://redis:6379/0
       RQ_REDIS_URL: redis://redis:6379/0
       UPLOAD_DIR: /app/app/storage/uploads
+      STUDIO_EXPORT_DIR: /app/app/storage/exports
       LOG_FORMAT: console
     volumes:
       - ./backend/app:/app/app
       - upload_data:/app/app/storage/uploads
+      - export_data:/app/app/storage/exports
     ports:
       - "8000:8000"
     healthcheck:
@@ -75,9 +77,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://fairhire:fairhire@db:5432/fairhire
       REDIS_URL: redis://redis:6379/0
       RQ_REDIS_URL: redis://redis:6379/0
+      STUDIO_EXPORT_DIR: /app/app/storage/exports
       LOG_FORMAT: console
     volumes:
       - ./backend/app:/app/app
+      - export_data:/app/app/storage/exports
     depends_on:
       backend:
         condition: service_healthy
@@ -134,5 +138,6 @@ volumes:
   postgres_data:
   redis_data:
   upload_data:
+  export_data:
   prometheus_data:
   grafana_data:

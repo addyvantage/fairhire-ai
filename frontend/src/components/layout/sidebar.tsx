@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   FileText,
   Briefcase,
+  WandSparkles,
   BarChart3,
   Settings,
   LogOut,
@@ -19,6 +20,7 @@ import { useAuth } from "@/lib/auth-context"
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/resumes", label: "Resumes", icon: FileText },
+  { href: "/dashboard/studio", label: "Resume Studio", icon: WandSparkles },
   { href: "/dashboard/jobs", label: "Job Profiles", icon: Briefcase },
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },

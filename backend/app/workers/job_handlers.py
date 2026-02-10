@@ -9,14 +9,18 @@ mixing asyncio + SQLAlchemy async inside RQ's sync worker loop.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 import traceback
 from datetime import datetime, timezone
 
+from app.core.config import get_settings
 from app.db.sync_session import SyncSessionLocal
 from app.models.analysis import AnalysisRun
 from app.models.job_description import JobDescription
 from app.models.resume import Resume
+from app.models.resume_studio import ResumeStudioExport, ResumeStudioVersion
 from app.services.resume_analyzer import analyze_resume
+from app.services.resume_studio import ResumeStudioService
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +236,66 @@ def run_analysis_job(analysis_id: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Resume Studio export jobs
+# ---------------------------------------------------------------------------
+
+
+def run_resume_studio_export_job(export_id: int) -> dict:
+    """Generate Resume Studio exports (PDF or DOCX) in worker context."""
+    logger.info("Starting Resume Studio export", extra={"export_id": export_id})
+    db = SyncSessionLocal()
+    try:
+        export = db.get(ResumeStudioExport, export_id)
+        if export is None:
+            raise ValueError(f"ResumeStudioExport {export_id} not found")
+        version = db.get(ResumeStudioVersion, export.version_id)
+        if version is None:
+            raise ValueError(f"ResumeStudioVersion {export.version_id} not found")
+
+        export.status = "processing"
+        export.error_message = None
+        db.commit()
+
+        service = ResumeStudioService()
+        settings = get_settings()
+        output_dir = Path(settings.studio_export_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        extension = export.format.lower()
+        file_name = f"studio_project_{version.project_id}_v{version.id}_export_{export.id}.{extension}"
+        output_path = output_dir / file_name
+
+        structured_resume = version.resume_structured_json or {}
+        if extension == "pdf":
+            service.export_pdf(structured_resume=structured_resume, output_path=str(output_path))
+        elif extension == "docx":
+            service.export_docx(structured_resume=structured_resume, output_path=str(output_path))
+        else:
+            raise ValueError(f"Unsupported export format: {export.format}")
+
+        export.status = "completed"
+        export.completed_at = datetime.now(timezone.utc)
+        export.file_path = str(output_path.resolve())
+        export.error_message = None
+        db.commit()
+        logger.info(
+            "Resume Studio export completed",
+            extra={"export_id": export_id, "file_path": export.file_path},
+        )
+        return {"export_id": export_id, "status": export.status, "file_path": export.file_path}
+    except Exception as exc:
+        logger.error(
+            "Resume Studio export failed",
+            extra={"export_id": export_id, "error": str(exc)},
+            exc_info=True,
+        )
+        _mark_studio_export_failed_sync(db, export_id=export_id, exc=exc)
+        raise
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
@@ -252,6 +316,28 @@ def _mark_failed_sync(db, analysis_id: int, exc: Exception) -> None:
         logger.error(
             "Failed to mark analysis as failed",
             extra={"analysis_id": analysis_id},
+            exc_info=True,
+        )
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
+def _mark_studio_export_failed_sync(db, export_id: int, exc: Exception) -> None:
+    try:
+        db.rollback()
+        export = db.get(ResumeStudioExport, export_id)
+        if export is not None:
+            export.status = "failed"
+            export.completed_at = datetime.now(timezone.utc)
+            error_text = traceback.format_exception_only(type(exc), exc)
+            export.error_message = "".join(error_text)[:_MAX_ERROR_LENGTH]
+            db.commit()
+    except Exception:
+        logger.error(
+            "Failed to mark studio export as failed",
+            extra={"export_id": export_id},
             exc_info=True,
         )
         try:

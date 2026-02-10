@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     database_url: str = "postgresql+asyncpg://fairhire:fairhire@db:5432/fairhire"
     upload_dir: str = "app/storage/uploads"
+    studio_export_dir: str = "app/storage/exports"
+    studio_max_upload_mb: int = 10
     allowed_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     # Redis
