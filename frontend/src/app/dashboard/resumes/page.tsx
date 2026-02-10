@@ -3,59 +3,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ColumnDef } from "@tanstack/react-table"
-import { FileText, Loader2, Play, Eye, AlertCircle } from "lucide-react"
+import { AlertCircle, Eye, FileText, Loader2, Play, Upload } from "lucide-react"
 import { motion } from "framer-motion"
 import { useAuth } from "@/lib/auth-context"
 import {
-  listResumes,
-  uploadResume,
-  triggerTargetedAnalysis,
-  listJobProfiles,
-  getLastUsedProfile,
+  AnalysisResult,
+  JobProfile,
+  Resume,
   getAnalysisByResume,
-  type Resume,
-  type AnalysisResult,
-  type JobProfile,
+  getLastUsedProfile,
+  listJobProfiles,
+  listResumes,
+  triggerTargetedAnalysis,
+  uploadResume,
 } from "@/lib/api"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Sidebar } from "@/components/layout/sidebar"
-import { FileUpload } from "@/components/ui/file-upload"
-import { VirtualizedTable } from "@/components/ui/virtualized-table"
-import { Skeleton } from "@/components/ui/skeleton"
+import { DataTable } from "@/components/tables/data-table"
 import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
+import { FileUpload } from "@/components/ui/file-upload"
 import { JobProfileSelector } from "@/components/ui/job-profile-selector"
+import { PageTransition } from "@/components/ui/page-transition"
+import { SegmentedControl } from "@/components/ui/segmented-control"
+import { Skeleton } from "@/components/ui/skeleton"
+import { StatusPill } from "@/components/ui/status-pill"
 import { useToast } from "@/components/ui/use-toast"
 
-function ResumesSkeleton() {
-  return (
-    <DashboardLayout sidebar={<Sidebar />}>
-      <div className="mx-auto max-w-5xl space-y-8">
-        <div className="space-y-2">
-          <Skeleton className="h-7 w-28" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <Skeleton className="h-32 w-full rounded-xl" />
-        <div className="space-y-0 rounded-xl border overflow-hidden">
-          <div className="border-b bg-muted/30 px-4 py-2.5 flex gap-16">
-            <Skeleton className="h-3 w-12" />
-            <Skeleton className="h-3 w-12" />
-            <Skeleton className="h-3 w-12" />
-          </div>
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="border-b last:border-0 px-4 py-3 flex gap-16">
-              <Skeleton className="h-4 w-48" />
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-4 w-20" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </DashboardLayout>
-  )
+type ResumeWithAnalysis = Resume & {
+  analysis?: AnalysisResult | null
 }
 
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
+type ViewMode = "table" | "cards"
+
+function formatDate(value: string) {
+  const date = new Date(value)
   if (isNaN(date.getTime())) return "—"
   return date.toLocaleDateString("en-US", {
     month: "short",
@@ -64,24 +45,42 @@ function formatDate(dateStr: string): string {
   })
 }
 
-type ResumeWithAnalysis = Resume & {
-  analysis?: AnalysisResult | null
+function ResumesSkeleton() {
+  return (
+    <DashboardLayout title="Resumes" description="Upload candidates and run role-specific analysis.">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
+        <Skeleton className="h-36 w-full rounded-[var(--radius)]" />
+        <Skeleton className="h-10 w-48 rounded-xl" />
+        <div className="surface-card space-y-4 p-4">
+          <Skeleton className="h-8 w-full rounded-lg" />
+          <Skeleton className="h-8 w-full rounded-lg" />
+          <Skeleton className="h-8 w-full rounded-lg" />
+        </div>
+      </div>
+    </DashboardLayout>
+  )
 }
 
 export default function ResumesPage() {
   const { token, isAuthenticated, isLoading } = useAuth()
+  const { toast } = useToast()
+  const router = useRouter()
+
   const [resumes, setResumes] = useState<ResumeWithAnalysis[]>([])
+  const [viewMode, setViewMode] = useState<ViewMode>("table")
   const [uploading, setUploading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [analyzingIds, setAnalyzingIds] = useState<Set<number>>(new Set())
   const pollingRef = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map())
-  const router = useRouter()
-  const { toast } = useToast()
 
-  // Job profile selector state
   const [jobProfiles, setJobProfiles] = useState<JobProfile[]>([])
   const [lastUsedProfileId, setLastUsedProfileId] = useState<number | null>(null)
   const [selectorResumeId, setSelectorResumeId] = useState<number | null>(null)
+  const tokenRef = useRef<string | null>(token)
+
+  useEffect(() => {
+    tokenRef.current = token
+  }, [token])
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -89,74 +88,74 @@ export default function ResumesPage() {
     }
   }, [isLoading, isAuthenticated, router])
 
-  // Store token in a ref so polling callbacks always have the latest
-  const tokenRef = useRef(token)
-  useEffect(() => {
-    tokenRef.current = token
-  }, [token])
-
-  // Fetch job profiles and last-used profile on mount
   useEffect(() => {
     if (!token) return
-    listJobProfiles(token).then(setJobProfiles).catch(() => {})
+    listJobProfiles(token).then(setJobProfiles).catch(() => undefined)
     getLastUsedProfile(token)
-      .then((p) => setLastUsedProfileId(p?.id ?? null))
-      .catch(() => {})
+      .then((profile) => setLastUsedProfileId(profile?.id ?? null))
+      .catch(() => undefined)
   }, [token])
 
-  const startPolling = useCallback((resumeId: number) => {
-    if (pollingRef.current.has(resumeId)) return
+  const stopPolling = useCallback((resumeId: number) => {
+    const interval = pollingRef.current.get(resumeId)
+    if (!interval) return
+    clearInterval(interval)
+    pollingRef.current.delete(resumeId)
+    setAnalyzingIds((previous) => {
+      const next = new Set(previous)
+      next.delete(resumeId)
+      return next
+    })
+  }, [])
 
-    setAnalyzingIds((prev) => new Set(prev).add(resumeId))
+  const startPolling = useCallback(
+    (resumeId: number) => {
+      if (pollingRef.current.has(resumeId)) return
 
-    const interval = setInterval(async () => {
-      const t = tokenRef.current
-      if (!t) return
-      try {
-        const analysis = await getAnalysisByResume(t, resumeId)
-        if (!analysis) return
+      setAnalyzingIds((previous) => new Set(previous).add(resumeId))
+      const interval = setInterval(async () => {
+        const authToken = tokenRef.current
+        if (!authToken) return
 
-        setResumes((prev) =>
-          prev.map((r) => (r.id === resumeId ? { ...r, analysis } : r))
-        )
+        try {
+          const analysis = await getAnalysisByResume(authToken, resumeId)
+          if (!analysis) return
 
-        if (analysis.status === "completed" || analysis.status === "failed") {
-          clearInterval(interval)
-          pollingRef.current.delete(resumeId)
-          setAnalyzingIds((prev) => {
-            const next = new Set(prev)
-            next.delete(resumeId)
-            return next
-          })
+          setResumes((previous) =>
+            previous.map((entry) => (entry.id === resumeId ? { ...entry, analysis } : entry))
+          )
 
-          if (analysis.status === "completed") {
-            toast({
-              title: "Analysis complete",
-              description: `Score: ${analysis.match_score}%`,
-            })
-          } else {
-            toast({
-              title: "Analysis failed",
-              description: analysis.error_message || "An error occurred",
-              variant: "destructive",
-            })
+          if (analysis.status === "completed" || analysis.status === "failed") {
+            stopPolling(resumeId)
+            if (analysis.status === "completed") {
+              toast({
+                title: "Analysis complete",
+                description: `Match score ${analysis.match_score ?? 0}%`,
+              })
+            } else {
+              toast({
+                title: "Analysis failed",
+                description: analysis.error_message ?? "An unexpected error occurred.",
+                variant: "destructive",
+              })
+            }
           }
+        } catch {
+          return
         }
-      } catch {
-        // Silently retry on network errors
-      }
-    }, 3000)
+      }, 2500)
 
-    pollingRef.current.set(resumeId, interval)
-  }, [toast])
+      pollingRef.current.set(resumeId, interval)
+    },
+    [stopPolling, toast]
+  )
 
   const fetchResumes = useCallback(async () => {
     if (!token) return
     try {
-      const data = await listResumes(token)
-
-      const withAnalysis = await Promise.all(
-        data.map(async (resume) => {
+      const records = await listResumes(token)
+      const enriched = await Promise.all(
+        records.map(async (resume) => {
           try {
             const analysis = await getAnalysisByResume(token, resume.id)
             return { ...resume, analysis }
@@ -166,22 +165,19 @@ export default function ResumesPage() {
         })
       )
 
-      setResumes(withAnalysis)
+      setResumes(enriched)
       setLoaded(true)
 
-      for (const r of withAnalysis) {
-        if (
-          r.analysis &&
-          (r.analysis.status === "queued" || r.analysis.status === "processing")
-        ) {
-          startPolling(r.id)
+      enriched.forEach((resume) => {
+        if (resume.analysis?.status === "queued" || resume.analysis?.status === "processing") {
+          startPolling(resume.id)
         }
-      }
+      })
     } catch {
-      setResumes([])
       setLoaded(true)
+      setResumes([])
     }
-  }, [token, startPolling])
+  }, [startPolling, token])
 
   useEffect(() => {
     fetchResumes()
@@ -201,26 +197,22 @@ export default function ResumesPage() {
       setSelectorResumeId(null)
       if (!resumeId) return
 
-      const t = tokenRef.current
-      if (!t) return
-      try {
-        await triggerTargetedAnalysis(t, resumeId, profile.id)
-        setLastUsedProfileId(profile.id)
-        toast({
-          title: "Analysis started",
-          description: `Scoring against ${profile.title}...`,
-        })
+      const authToken = tokenRef.current
+      if (!authToken) return
 
-        setResumes((prev) =>
-          prev.map((r) =>
-            r.id === resumeId
+      try {
+        await triggerTargetedAnalysis(authToken, resumeId, profile.id)
+        setLastUsedProfileId(profile.id)
+        setResumes((previous) =>
+          previous.map((resume) =>
+            resume.id === resumeId
               ? {
-                  ...r,
+                  ...resume,
                   analysis: {
                     id: 0,
                     resume_id: resumeId,
                     job_profile_id: profile.id,
-                    status: "queued" as const,
+                    status: "queued",
                     match_score: null,
                     extracted_metadata: null,
                     job_match_result: null,
@@ -230,20 +222,24 @@ export default function ResumesPage() {
                     created_at: new Date().toISOString(),
                   },
                 }
-              : r
+              : resume
           )
         )
 
-        startPolling(resumeId)
-      } catch (err) {
         toast({
-          title: "Failed to start analysis",
-          description: (err as Error).message,
+          title: "Analysis queued",
+          description: `Scoring against ${profile.title}.`,
+        })
+        startPolling(resumeId)
+      } catch (error) {
+        toast({
+          title: "Unable to start analysis",
+          description: (error as Error).message,
           variant: "destructive",
         })
       }
     },
-    [selectorResumeId, toast, startPolling]
+    [selectorResumeId, startPolling, toast]
   )
 
   async function handleFileSelect(file: File) {
@@ -251,12 +247,15 @@ export default function ResumesPage() {
     setUploading(true)
     try {
       await uploadResume(token, file)
-      toast({ title: "Resume uploaded", description: file.name })
+      toast({
+        title: "Resume uploaded",
+        description: `${file.name} is ready for analysis.`,
+      })
       fetchResumes()
-    } catch (err) {
+    } catch (error) {
       toast({
         title: "Upload failed",
-        description: (err as Error).message,
+        description: (error as Error).message,
         variant: "destructive",
       })
     } finally {
@@ -264,196 +263,130 @@ export default function ResumesPage() {
     }
   }
 
-  const columns: ColumnDef<ResumeWithAnalysis, unknown>[] = useMemo(
+  const columns = useMemo<ColumnDef<ResumeWithAnalysis, unknown>[]>(
     () => [
       {
         accessorKey: "original_filename",
-        header: "File",
+        header: "Resume",
         cell: ({ row }) => (
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-              <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+              <FileText className="h-4 w-4 text-muted-foreground" />
             </div>
-            <span className="font-medium text-foreground truncate">
-              {row.original.original_filename}
-            </span>
+            <p className="truncate font-medium text-foreground">{row.original.original_filename}</p>
           </div>
         ),
       },
       {
         accessorKey: "created_at",
         header: "Uploaded",
-        cell: ({ row }) => (
-          <span className="text-muted-foreground tabular-nums">
-            {formatDate(row.original.created_at)}
-          </span>
-        ),
+        cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatDate(row.original.created_at)}</span>,
+      },
+      {
+        id: "status",
+        header: "Status",
+        cell: ({ row }) => {
+          const status = row.original.analysis?.status
+          if (!status) return <span className="text-sm text-muted-foreground">Ready</span>
+          return <StatusPill status={status} />
+        },
       },
       {
         id: "score",
-        header: "Score",
+        header: "Match Score",
         cell: ({ row }) => {
-          const analysis = row.original.analysis
-          if (!analysis || analysis.status !== "completed" || analysis.match_score == null) {
-            return <span className="text-muted-foreground text-xs">—</span>
-          }
-          return (
-            <span className="font-medium tabular-nums text-foreground">
-              {analysis.match_score}%
-            </span>
-          )
+          const score = row.original.analysis?.match_score
+          if (score == null) return <span className="text-sm text-muted-foreground">—</span>
+          return <span className="text-sm font-semibold tabular-nums text-foreground">{score}%</span>
         },
       },
       {
         id: "actions",
         header: "",
-        cell: ({ row }) => {
-          const resume = row.original
-          const analysis = resume.analysis
-          const isAnalyzing = analyzingIds.has(resume.id)
-
-          if (isAnalyzing || (analysis && (analysis.status === "queued" || analysis.status === "processing"))) {
-            return (
-              <div className="flex justify-end">
-                <Button size="sm" variant="outline" disabled className="gap-1.5 text-xs">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Processing...
-                </Button>
-              </div>
-            )
-          }
-
-          if (analysis?.status === "completed") {
-            return (
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 text-xs"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    router.push(`/dashboard/resumes/${resume.id}/analysis`)
-                  }}
-                >
-                  <Eye className="h-3 w-3" />
-                  View Analysis
-                </Button>
-              </div>
-            )
-          }
-
-          if (analysis?.status === "failed") {
-            return (
-              <div className="flex justify-end items-center gap-2">
-                <span className="text-xs text-destructive flex items-center gap-1">
-                  <AlertCircle className="h-3 w-3" />
-                  Failed
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 text-xs"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleAnalyze(resume.id)
-                  }}
-                >
-                  <Play className="h-3 w-3" />
-                  Retry
-                </Button>
-              </div>
-            )
-          }
-
-          return (
-            <div className="flex justify-end">
-              <Button
-                size="sm"
-                variant="default"
-                className="gap-1.5 text-xs"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleAnalyze(resume.id)
-                }}
-              >
-                <Play className="h-3 w-3" />
-                Analyze
-              </Button>
-            </div>
-          )
-        },
+        cell: ({ row }) => <RowAction resume={row.original} onAnalyze={handleAnalyze} router={router} />,
       },
     ],
-    [analyzingIds, router, handleAnalyze]
+    [handleAnalyze, router]
   )
 
-  if (isLoading || !isAuthenticated) {
-    return <ResumesSkeleton />
-  }
+  if (isLoading || !isAuthenticated) return <ResumesSkeleton />
 
   return (
-    <DashboardLayout sidebar={<Sidebar />}>
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-        className="mx-auto max-w-5xl space-y-8"
-      >
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Resumes
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Upload and manage candidate resumes
-          </p>
+    <DashboardLayout
+      title="Resumes"
+      description="Upload candidates and run role-specific analysis."
+      actions={
+        <div className="flex items-center gap-2">
+          <SegmentedControl
+            options={[
+              { label: "Table", value: "table" },
+              { label: "Cards", value: "cards" },
+            ]}
+            value={viewMode}
+            onChange={setViewMode}
+          />
+          <Button size="sm" variant="outline" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+            <Upload className="h-4 w-4" />
+            Upload
+          </Button>
         </div>
-
-        <FileUpload
-          onFileSelect={handleFileSelect}
-          accept=".pdf,.doc,.docx"
-          disabled={uploading}
-        />
+      }
+    >
+      <PageTransition className="mx-auto w-full max-w-6xl">
+        <FileUpload onFileSelect={handleFileSelect} accept=".pdf,.doc,.docx" disabled={uploading} />
 
         {uploading && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className="flex items-center gap-2.5 text-sm text-muted-foreground"
-          >
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            <span>Uploading...</span>
-          </motion.div>
+          <div className="surface-card flex items-center gap-2 px-4 py-3">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Uploading resume…</p>
+          </div>
         )}
 
-        {loaded && resumes.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.05 }}
-          >
-            <VirtualizedTable columns={columns} data={resumes} />
-          </motion.div>
+        {loaded && resumes.length > 0 && viewMode === "table" && <DataTable columns={columns} data={resumes} />}
+
+        {loaded && resumes.length > 0 && viewMode === "cards" && (
+          <div className="grid gap-4 md:grid-cols-2">
+            {resumes.map((resume) => (
+              <motion.div
+                key={resume.id}
+                whileHover={{ y: -2 }}
+                className="surface-card flex flex-col justify-between gap-4 p-5"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="line-clamp-2 text-base font-medium text-foreground">{resume.original_filename}</p>
+                    {resume.analysis?.status ? (
+                      <StatusPill status={resume.analysis.status} />
+                    ) : (
+                      <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                        Ready
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Uploaded {formatDate(resume.created_at)}</p>
+                  <p className="text-sm text-foreground">
+                    Match score:{" "}
+                    <span className="font-semibold tabular-nums">
+                      {resume.analysis?.match_score != null ? `${resume.analysis.match_score}%` : "—"}
+                    </span>
+                  </p>
+                </div>
+                <div className="flex justify-end">
+                  <RowAction resume={resume} onAnalyze={handleAnalyze} router={router} />
+                </div>
+              </motion.div>
+            ))}
+          </div>
         )}
 
         {loaded && resumes.length === 0 && !uploading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.1 }}
-            className="rounded-xl border border-dashed bg-muted/20 py-16 text-center"
-          >
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
-              <FileText className="h-5 w-5 text-muted-foreground/60" />
-            </div>
-            <p className="text-sm font-medium text-foreground/80">
-              No resumes yet
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Upload your first resume to get started
-            </p>
-          </motion.div>
+          <EmptyState
+            icon={<FileText className="h-5 w-5" />}
+            title="No resumes yet"
+            description="Import your first resume to start generating bias-aware candidate insights."
+          />
         )}
-      </motion.div>
+      </PageTransition>
 
       {selectorResumeId !== null && (
         <JobProfileSelector
@@ -464,5 +397,62 @@ export default function ResumesPage() {
         />
       )}
     </DashboardLayout>
+  )
+}
+
+function RowAction({
+  resume,
+  onAnalyze,
+  router,
+}: {
+  resume: ResumeWithAnalysis
+  onAnalyze: (resumeId: number) => void
+  router: ReturnType<typeof useRouter>
+}) {
+  const status = resume.analysis?.status
+
+  if (status === "queued" || status === "processing") {
+    return (
+      <Button size="sm" variant="outline" disabled>
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Processing
+      </Button>
+    )
+  }
+
+  if (status === "completed") {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          router.push(`/dashboard/resumes/${resume.id}/analysis`)
+        }}
+      >
+        <Eye className="h-4 w-4" />
+        View analysis
+      </Button>
+    )
+  }
+
+  if (status === "failed") {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-destructive">
+          <AlertCircle className="h-3.5 w-3.5" />
+          Failed
+        </span>
+        <Button size="sm" variant="outline" onClick={() => onAnalyze(resume.id)}>
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <Button size="sm" onClick={() => onAnalyze(resume.id)}>
+      <Play className="h-4 w-4" />
+      Analyze
+    </Button>
   )
 }

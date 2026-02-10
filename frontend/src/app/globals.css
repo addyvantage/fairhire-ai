@@ -1,51 +1,12 @@
 @import "tailwindcss";
+@import "../styles/tokens.css";
 
-@theme {
-  --color-background: hsl(0 0% 100%);
-  --color-foreground: hsl(240 10% 3.9%);
-  --color-card: hsl(0 0% 100%);
-  --color-card-foreground: hsl(240 10% 3.9%);
-  --color-popover: hsl(0 0% 100%);
-  --color-popover-foreground: hsl(240 10% 3.9%);
-  --color-primary: hsl(240 5.9% 10%);
-  --color-primary-foreground: hsl(0 0% 98%);
-  --color-secondary: hsl(240 4.8% 95.9%);
-  --color-secondary-foreground: hsl(240 5.9% 10%);
-  --color-muted: hsl(240 4.8% 95.9%);
-  --color-muted-foreground: hsl(240 3.8% 46.1%);
-  --color-accent: hsl(240 4.8% 95.9%);
-  --color-accent-foreground: hsl(240 5.9% 10%);
-  --color-destructive: hsl(0 84.2% 60.2%);
-  --color-destructive-foreground: hsl(0 0% 98%);
-  --color-border: hsl(240 5.9% 90%);
-  --color-input: hsl(240 5.9% 90%);
-  --color-ring: hsl(240 5.9% 10%);
-  --color-success: hsl(142 71% 45%);
-  --radius: 0.625rem;
-
-  /* Shadow depth hierarchy */
-  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.03);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.03);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.06), 0 4px 6px -4px rgb(0 0 0 / 0.04);
-
-  --animate-in: enter 250ms cubic-bezier(0.16, 1, 0.3, 1);
-  --animate-fade-in: fade-in 200ms ease-out;
-
-  @keyframes enter {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
   }
-
-  @keyframes fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+  100% {
+    transform: translateX(100%);
   }
 }
 
@@ -56,10 +17,54 @@
     @apply border-border;
   }
 
+  html,
   body {
-    @apply bg-background text-foreground antialiased;
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-primary/15 selection:text-foreground;
     font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
       Roboto, Helvetica, Arial, sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-image: radial-gradient(circle at top right, #e2e8f940, transparent 32%);
+  }
+
+  button,
+  a {
+    @apply transition-colors;
+  }
+}
+
+@layer utilities {
+  .surface-card {
+    @apply rounded-[var(--radius)] border border-border bg-card shadow-[var(--shadow-xs)];
+  }
+
+  .surface-elevated {
+    @apply rounded-[var(--radius)] border border-border bg-card shadow-[var(--shadow-sm)];
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .shimmer::after {
+    position: absolute;
+    inset: 0;
+    content: "";
+    transform: translateX(-100%);
+    animation: shimmer 1.8s infinite;
+    background: linear-gradient(
+      100deg,
+      transparent 0%,
+      rgb(255 255 255 / 0.65) 45%,
+      transparent 100%
+    );
   }
 }

@@ -2,38 +2,57 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ColumnDef } from "@tanstack/react-table"
-import { Briefcase, Plus, Trash2, Loader2 } from "lucide-react"
-import { motion } from "framer-motion"
+import { AnimatePresence, motion } from "framer-motion"
+import {
+  Briefcase,
+  Building2,
+  Loader2,
+  Plus,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import {
-  listJobProfiles,
+  JobProfile,
   createJobProfile,
   deleteJobProfile,
-  type JobProfile,
+  listJobProfiles,
 } from "@/lib/api"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Sidebar } from "@/components/layout/sidebar"
-import { VirtualizedTable } from "@/components/ui/virtualized-table"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Input } from "@/components/ui/input"
+import { PageTransition } from "@/components/ui/page-transition"
+import { SegmentedControl } from "@/components/ui/segmented-control"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
+import { transitions } from "@/lib/motion"
 
-function JobsSkeleton() {
+type CreateMode = "paste" | "manual"
+type ViewMode = "grid" | "list"
+
+function inferIndustry(profile: JobProfile) {
+  const source = `${profile.title} ${profile.raw_description ?? ""}`.toLowerCase()
+  if (source.includes("finance") || source.includes("analyst")) return "Finance"
+  if (source.includes("health") || source.includes("clinical")) return "Healthcare"
+  if (source.includes("sales") || source.includes("marketing")) return "Sales & Marketing"
+  if (source.includes("data") || source.includes("engineer") || source.includes("software")) return "Technology"
+  if (source.includes("operations") || source.includes("supply")) return "Operations"
+  return "General"
+}
+
+function JobProfilesSkeleton() {
   return (
-    <DashboardLayout sidebar={<Sidebar />}>
-      <div className="mx-auto max-w-5xl space-y-8">
-        <div className="space-y-2">
-          <Skeleton className="h-7 w-32" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <Skeleton className="h-48 w-full rounded-xl" />
-        <div className="space-y-0 rounded-xl border overflow-hidden">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="border-b last:border-0 px-4 py-3 flex gap-16">
-              <Skeleton className="h-4 w-48" />
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-4 w-20" />
+    <DashboardLayout title="Job Profiles" description="Configure role scorecards for targeted matching.">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
+        <Skeleton className="h-10 w-40 rounded-xl" />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="surface-card space-y-4 p-5">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-1/3" />
+              <Skeleton className="h-20 w-full" />
             </div>
           ))}
         </div>
@@ -42,22 +61,21 @@ function JobsSkeleton() {
   )
 }
 
-type CreateMode = "paste" | "manual" | null
-
 export default function JobProfilesPage() {
   const { token, isAuthenticated, isLoading } = useAuth()
+  const { toast } = useToast()
+  const router = useRouter()
+
   const [profiles, setProfiles] = useState<JobProfile[]>([])
   const [loaded, setLoaded] = useState(false)
-  const [createMode, setCreateMode] = useState<CreateMode>(null)
   const [creating, setCreating] = useState(false)
-  const router = useRouter()
-  const { toast } = useToast()
+  const [openModal, setOpenModal] = useState(false)
+  const [createMode, setCreateMode] = useState<CreateMode>("paste")
+  const [viewMode, setViewMode] = useState<ViewMode>("grid")
 
-  // Form state for "Paste JD"
   const [pasteTitle, setPasteTitle] = useState("")
   const [pasteText, setPasteText] = useState("")
 
-  // Form state for "Build Manually"
   const [manualTitle, setManualTitle] = useState("")
   const [manualSeniority, setManualSeniority] = useState("")
   const [manualRequiredSkills, setManualRequiredSkills] = useState("")
@@ -69,13 +87,13 @@ export default function JobProfilesPage() {
     if (!isLoading && !isAuthenticated) {
       router.replace("/login")
     }
-  }, [isLoading, isAuthenticated, router])
+  }, [isAuthenticated, isLoading, router])
 
   const fetchProfiles = useCallback(async () => {
     if (!token) return
     try {
-      const data = await listJobProfiles(token)
-      setProfiles(data)
+      const entries = await listJobProfiles(token)
+      setProfiles(entries)
       setLoaded(true)
     } catch {
       setProfiles([])
@@ -87,6 +105,15 @@ export default function JobProfilesPage() {
     fetchProfiles()
   }, [fetchProfiles])
 
+  const sortedProfiles = useMemo(
+    () =>
+      [...profiles].sort((a, b) => {
+        if (a.is_template === b.is_template) return a.title.localeCompare(b.title)
+        return a.is_template ? 1 : -1
+      }),
+    [profiles]
+  )
+
   async function handleCreatePaste() {
     if (!token || !pasteTitle.trim()) return
     setCreating(true)
@@ -95,15 +122,15 @@ export default function JobProfilesPage() {
         title: pasteTitle.trim(),
         raw_description: pasteText.trim() || undefined,
       })
-      toast({ title: "Job profile created", description: pasteTitle.trim() })
+      toast({ title: "Profile created", description: pasteTitle.trim() })
       setPasteTitle("")
       setPasteText("")
-      setCreateMode(null)
+      setOpenModal(false)
       fetchProfiles()
-    } catch (err) {
+    } catch (error) {
       toast({
-        title: "Failed to create profile",
-        description: (err as Error).message,
+        title: "Create failed",
+        description: (error as Error).message,
         variant: "destructive",
       })
     } finally {
@@ -115,36 +142,37 @@ export default function JobProfilesPage() {
     if (!token || !manualTitle.trim()) return
     setCreating(true)
     try {
-      const reqSkills = manualRequiredSkills
+      const requiredSkills = manualRequiredSkills
         .split(",")
-        .map((s) => s.trim().toLowerCase())
+        .map((entry) => entry.trim())
         .filter(Boolean)
-      const optSkills = manualOptionalSkills
+      const optionalSkills = manualOptionalSkills
         .split(",")
-        .map((s) => s.trim().toLowerCase())
+        .map((entry) => entry.trim())
         .filter(Boolean)
 
       await createJobProfile(token, {
         title: manualTitle.trim(),
         seniority_level: manualSeniority || undefined,
-        required_skills: reqSkills.length > 0 ? reqSkills : undefined,
-        optional_skills: optSkills.length > 0 ? optSkills : undefined,
-        years_experience_min: manualExpMin ? parseInt(manualExpMin) : undefined,
-        years_experience_max: manualExpMax ? parseInt(manualExpMax) : undefined,
+        required_skills: requiredSkills.length > 0 ? requiredSkills : undefined,
+        optional_skills: optionalSkills.length > 0 ? optionalSkills : undefined,
+        years_experience_min: manualExpMin ? Number(manualExpMin) : undefined,
+        years_experience_max: manualExpMax ? Number(manualExpMax) : undefined,
       })
-      toast({ title: "Job profile created", description: manualTitle.trim() })
+
+      toast({ title: "Profile created", description: manualTitle.trim() })
       setManualTitle("")
       setManualSeniority("")
       setManualRequiredSkills("")
       setManualOptionalSkills("")
       setManualExpMin("")
       setManualExpMax("")
-      setCreateMode(null)
+      setOpenModal(false)
       fetchProfiles()
-    } catch (err) {
+    } catch (error) {
       toast({
-        title: "Failed to create profile",
-        description: (err as Error).message,
+        title: "Create failed",
+        description: (error as Error).message,
         variant: "destructive",
       })
     } finally {
@@ -158,341 +186,312 @@ export default function JobProfilesPage() {
       await deleteJobProfile(token, profileId)
       toast({ title: "Profile deleted" })
       fetchProfiles()
-    } catch (err) {
+    } catch (error) {
       toast({
         title: "Delete failed",
-        description: (err as Error).message,
+        description: (error as Error).message,
         variant: "destructive",
       })
     }
   }
 
-  const columns: ColumnDef<JobProfile, unknown>[] = useMemo(
-    () => [
-      {
-        accessorKey: "title",
-        header: "Title",
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/60">
-              <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
-            </div>
-            <div className="min-w-0">
-              <span className="font-medium text-foreground truncate block">
-                {row.original.title}
-              </span>
-              {row.original.is_template && (
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                  Template
-                </span>
-              )}
-            </div>
-          </div>
-        ),
-      },
-      {
-        accessorKey: "seniority_level",
-        header: "Seniority",
-        cell: ({ row }) => {
-          const level = row.original.seniority_level
-          if (!level) return <span className="text-muted-foreground text-xs">—</span>
-          return (
-            <span className="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-xs font-medium capitalize text-foreground/80">
-              {level}
-            </span>
-          )
-        },
-      },
-      {
-        id: "skills",
-        header: "Skills",
-        cell: ({ row }) => {
-          const required = row.original.required_skills?.length ?? 0
-          const optional = row.original.optional_skills?.length ?? 0
-          return (
-            <span className="text-muted-foreground text-xs tabular-nums">
-              {required} req · {optional} opt
-            </span>
-          )
-        },
-      },
-      {
-        id: "experience",
-        header: "Experience",
-        cell: ({ row }) => {
-          const min = row.original.years_experience_min
-          const max = row.original.years_experience_max
-          if (min == null && max == null) {
-            return <span className="text-muted-foreground text-xs">—</span>
-          }
-          return (
-            <span className="text-muted-foreground text-xs tabular-nums">
-              {min ?? 0}–{max ?? "?"} yrs
-            </span>
-          )
-        },
-      },
-      {
-        id: "actions",
-        header: "",
-        cell: ({ row }) => {
-          if (row.original.is_template) return null
-          return (
-            <div className="flex justify-end">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleDelete(row.original.id)
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          )
-        },
-      },
-    ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  )
-
-  if (isLoading || !isAuthenticated) {
-    return <JobsSkeleton />
-  }
+  if (isLoading || !isAuthenticated) return <JobProfilesSkeleton />
 
   return (
-    <DashboardLayout sidebar={<Sidebar />}>
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-        className="mx-auto max-w-5xl space-y-8"
-      >
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">
-              Job Profiles
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Define target roles to score resumes against
-            </p>
-          </div>
-          {!createMode && (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 text-xs"
-                onClick={() => setCreateMode("paste")}
-              >
-                <Plus className="h-3 w-3" />
-                Paste JD
-              </Button>
-              <Button
-                size="sm"
-                variant="default"
-                className="gap-1.5 text-xs"
-                onClick={() => setCreateMode("manual")}
-              >
-                <Plus className="h-3 w-3" />
-                Build Manually
-              </Button>
-            </div>
-          )}
+    <DashboardLayout
+      title="Job Profiles"
+      description="Build reusable role scorecards and target each analysis with intent."
+      actions={
+        <div className="flex items-center gap-2">
+          <SegmentedControl
+            options={[
+              { label: "Grid", value: "grid" },
+              { label: "List", value: "list" },
+            ]}
+            value={viewMode}
+            onChange={setViewMode}
+          />
+          <Button size="sm" onClick={() => setOpenModal(true)}>
+            <Plus className="h-4 w-4" />
+            Create profile
+          </Button>
         </div>
+      }
+    >
+      <PageTransition className="mx-auto w-full max-w-6xl">
+        {loaded && sortedProfiles.length === 0 ? (
+          <EmptyState
+            icon={<Sparkles className="h-5 w-5" />}
+            title="No job profiles yet"
+            description="Create your first profile to unlock targeted role matching and clearer hiring recommendations."
+            action={<Button onClick={() => setOpenModal(true)}>Create profile</Button>}
+          />
+        ) : null}
 
-        {/* Create Form: Paste JD */}
-        {createMode === "paste" && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className="rounded-xl border bg-card p-5 space-y-4"
-          >
-            <h2 className="text-sm font-semibold text-foreground">
-              Paste a Job Description
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              We&apos;ll auto-extract skills, seniority, and experience requirements.
-            </p>
-            <input
-              type="text"
-              placeholder="Job title (e.g. Senior Frontend Engineer)"
-              value={pasteTitle}
-              onChange={(e) => setPasteTitle(e.target.value)}
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-foreground/10"
-            />
-            <textarea
-              placeholder="Paste the full job description here..."
-              value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
-              rows={8}
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-foreground/10 resize-none"
-            />
-            <div className="flex gap-2 justify-end">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setCreateMode(null)}
-                disabled={creating}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleCreatePaste}
-                disabled={creating || !pasteTitle.trim()}
-                className="gap-1.5"
-              >
-                {creating && <Loader2 className="h-3 w-3 animate-spin" />}
-                Create Profile
-              </Button>
-            </div>
-          </motion.div>
+        {sortedProfiles.length > 0 && viewMode === "grid" && (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {sortedProfiles.map((profile) => (
+              <JobProfileCard key={profile.id} profile={profile} onDelete={handleDelete} />
+            ))}
+          </div>
         )}
 
-        {/* Create Form: Build Manually */}
-        {createMode === "manual" && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className="rounded-xl border bg-card p-5 space-y-4"
-          >
-            <h2 className="text-sm font-semibold text-foreground">
-              Build Job Profile Manually
-            </h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                  Job Title
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Backend Engineer"
-                  value={manualTitle}
-                  onChange={(e) => setManualTitle(e.target.value)}
-                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-foreground/10"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                  Seniority Level
-                </label>
-                <select
-                  value={manualSeniority}
-                  onChange={(e) => setManualSeniority(e.target.value)}
-                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-foreground/10"
-                >
-                  <option value="">Select...</option>
-                  <option value="intern">Intern</option>
-                  <option value="junior">Junior</option>
-                  <option value="mid">Mid-level</option>
-                  <option value="senior">Senior</option>
-                  <option value="lead">Lead</option>
-                  <option value="principal">Principal</option>
-                  <option value="staff">Staff</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                  Experience (years)
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    placeholder="Min"
-                    value={manualExpMin}
-                    onChange={(e) => setManualExpMin(e.target.value)}
-                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-foreground/10"
-                  />
-                  <span className="text-muted-foreground text-xs">–</span>
-                  <input
-                    type="number"
-                    placeholder="Max"
-                    value={manualExpMax}
-                    onChange={(e) => setManualExpMax(e.target.value)}
-                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-foreground/10"
-                  />
+        {sortedProfiles.length > 0 && viewMode === "list" && (
+          <div className="surface-card overflow-hidden">
+            <div className="grid grid-cols-5 border-b bg-muted/70 px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              <span className="col-span-2">Role</span>
+              <span>Industry</span>
+              <span>Seniority</span>
+              <span className="text-right">Skills</span>
+            </div>
+            <div className="divide-y divide-border/80">
+              {sortedProfiles.map((profile) => (
+                <div key={profile.id} className="grid grid-cols-5 items-center gap-3 px-4 py-3">
+                  <div className="col-span-2 flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                      <Briefcase className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{profile.title}</p>
+                      {profile.is_template && (
+                        <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-primary">
+                          Template
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{inferIndustry(profile)}</p>
+                  <p className="text-sm capitalize text-muted-foreground">
+                    {profile.seniority_level ?? "Not set"}
+                  </p>
+                  <div className="flex items-center justify-end gap-3">
+                    <p className="text-sm font-medium tabular-nums text-foreground">
+                      {(profile.required_skills?.length ?? 0) + (profile.optional_skills?.length ?? 0)}
+                    </p>
+                    {!profile.is_template && (
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(profile.id)}
+                        className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                  Required Skills (comma-separated)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. python, sql, docker, kubernetes"
-                  value={manualRequiredSkills}
-                  onChange={(e) => setManualRequiredSkills(e.target.value)}
-                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-foreground/10"
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                  Optional Skills (comma-separated)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. redis, graphql, terraform"
-                  value={manualOptionalSkills}
-                  onChange={(e) => setManualOptionalSkills(e.target.value)}
-                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-foreground/10"
-                />
-              </div>
+              ))}
             </div>
-            <div className="flex gap-2 justify-end">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setCreateMode(null)}
-                disabled={creating}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleCreateManual}
-                disabled={creating || !manualTitle.trim()}
-                className="gap-1.5"
-              >
-                {creating && <Loader2 className="h-3 w-3 animate-spin" />}
-                Create Profile
-              </Button>
-            </div>
-          </motion.div>
+          </div>
         )}
+      </PageTransition>
 
-        {loaded && profiles.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.05 }}
-          >
-            <VirtualizedTable columns={columns} data={profiles} />
-          </motion.div>
-        )}
-
-        {loaded && profiles.length === 0 && !createMode && (
+      <AnimatePresence>
+        {openModal && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.1 }}
-            className="rounded-xl border border-dashed bg-muted/20 py-16 text-center"
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/25 px-4 backdrop-blur-sm"
+            onClick={() => setOpenModal(false)}
           >
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
-              <Briefcase className="h-5 w-5 text-muted-foreground/60" />
-            </div>
-            <p className="text-sm font-medium text-foreground/80">
-              No job profiles yet
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Create a profile or use a template to get started
-            </p>
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.985 }}
+              transition={transitions.base}
+              className="w-full max-w-2xl rounded-[var(--radius-lg)] border border-border bg-card shadow-[var(--shadow-lg)]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between border-b border-border px-6 py-5">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">Create job profile</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Paste a JD or configure a profile manually.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOpenModal(false)}
+                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-5 px-6 py-5">
+                <SegmentedControl
+                  options={[
+                    { label: "Paste JD", value: "paste" },
+                    { label: "Build manually", value: "manual" },
+                  ]}
+                  value={createMode}
+                  onChange={setCreateMode}
+                />
+
+                {createMode === "paste" ? (
+                  <div className="space-y-4">
+                    <Input
+                      placeholder="Role title (e.g. Financial Analyst)"
+                      value={pasteTitle}
+                      onChange={(event) => setPasteTitle(event.target.value)}
+                    />
+                    <textarea
+                      className="min-h-44 w-full rounded-[calc(var(--radius)-3px)] border border-input bg-background px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring/30"
+                      placeholder="Paste full job description here…"
+                      value={pasteText}
+                      onChange={(event) => setPasteText(event.target.value)}
+                    />
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="md:col-span-2">
+                      <Input
+                        placeholder="Role title"
+                        value={manualTitle}
+                        onChange={(event) => setManualTitle(event.target.value)}
+                      />
+                    </div>
+                    <select
+                      value={manualSeniority}
+                      onChange={(event) => setManualSeniority(event.target.value)}
+                      className="h-10 rounded-[calc(var(--radius)-3px)] border border-input bg-background px-3.5 text-sm capitalize outline-none focus:ring-2 focus:ring-ring/30"
+                    >
+                      <option value="">Select seniority</option>
+                      <option value="intern">Intern</option>
+                      <option value="junior">Junior</option>
+                      <option value="mid">Mid-level</option>
+                      <option value="senior">Senior</option>
+                      <option value="lead">Lead</option>
+                      <option value="staff">Staff</option>
+                      <option value="principal">Principal</option>
+                    </select>
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                      <Input
+                        type="number"
+                        placeholder="Min years"
+                        value={manualExpMin}
+                        onChange={(event) => setManualExpMin(event.target.value)}
+                      />
+                      <span className="text-sm text-muted-foreground">to</span>
+                      <Input
+                        type="number"
+                        placeholder="Max years"
+                        value={manualExpMax}
+                        onChange={(event) => setManualExpMax(event.target.value)}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Input
+                        placeholder="Required skills (comma-separated)"
+                        value={manualRequiredSkills}
+                        onChange={(event) => setManualRequiredSkills(event.target.value)}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Input
+                        placeholder="Optional skills (comma-separated)"
+                        value={manualOptionalSkills}
+                        onChange={(event) => setManualOptionalSkills(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-border px-6 py-4">
+                <Button variant="outline" onClick={() => setOpenModal(false)} disabled={creating}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={createMode === "paste" ? handleCreatePaste : handleCreateManual}
+                  disabled={
+                    creating || (createMode === "paste" ? !pasteTitle.trim() : !manualTitle.trim())
+                  }
+                >
+                  {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Create profile
+                </Button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
-      </motion.div>
+      </AnimatePresence>
     </DashboardLayout>
+  )
+}
+
+function JobProfileCard({
+  profile,
+  onDelete,
+}: {
+  profile: JobProfile
+  onDelete: (profileId: number) => void
+}) {
+  const skillCount = (profile.required_skills?.length ?? 0) + (profile.optional_skills?.length ?? 0)
+
+  return (
+    <motion.article whileHover={{ y: -2 }} className="surface-card space-y-5 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-semibold text-foreground">{profile.title}</h3>
+            {profile.is_template && (
+              <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-primary">
+                Template
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">{inferIndustry(profile)}</p>
+        </div>
+        {!profile.is_template && (
+          <button
+            type="button"
+            onClick={() => onDelete(profile.id)}
+            className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg border border-border/80 bg-muted/40 px-3 py-2">
+          <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Seniority</p>
+          <p className="mt-1 text-sm font-medium capitalize text-foreground">
+            {profile.seniority_level ?? "Not set"}
+          </p>
+        </div>
+        <div className="rounded-lg border border-border/80 bg-muted/40 px-3 py-2">
+          <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Skill count</p>
+          <p className="mt-1 text-sm font-medium text-foreground tabular-nums">{skillCount}</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          Role highlights
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {(profile.required_skills ?? []).slice(0, 5).map((skill) => (
+            <span key={skill} className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+              {skill}
+            </span>
+          ))}
+          {skillCount === 0 && (
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+              Add skills for sharper analysis
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1">
+          <Building2 className="h-3.5 w-3.5" />
+          {inferIndustry(profile)}
+        </span>
+        <span>{profile.source === "template" ? "Template source" : "Custom profile"}</span>
+      </div>
+    </motion.article>
   )
 }

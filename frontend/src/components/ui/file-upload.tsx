@@ -53,28 +53,28 @@ export function FileUpload({ onFileSelect, accept, disabled }: FileUploadProps) 
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={cn(
-        "group relative rounded-xl border-2 border-dashed px-6 py-10 text-center transition-all duration-200 cursor-pointer",
-        "bg-background hover:bg-muted/40 hover:border-muted-foreground/25",
-        isDragOver && "border-primary/40 bg-primary/[0.02] scale-[1.01]",
+        "group surface-card cursor-pointer border-2 border-dashed px-6 py-10 text-center transition-all duration-200",
+        "border-border/80 hover:border-primary/30 hover:bg-primary-soft/40",
+        isDragOver && "border-primary/40 bg-primary-soft/50",
         disabled && "pointer-events-none opacity-50"
       )}
     >
       <div
         className={cn(
-          "mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full transition-colors duration-200",
-          "bg-muted/60 group-hover:bg-muted",
-          isDragOver && "bg-primary/10"
+          "mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl transition-colors duration-200",
+          "bg-muted group-hover:bg-background",
+          isDragOver && "bg-background"
         )}
       >
         <UploadCloud
           className={cn(
             "h-5 w-5 transition-all duration-200",
-            "text-muted-foreground group-hover:text-foreground/70",
-            isDragOver && "text-primary scale-110"
+            "text-muted-foreground group-hover:text-primary",
+            isDragOver && "text-primary scale-105"
           )}
         />
       </div>
-      <p className="text-sm font-medium text-foreground/80">
+      <p className="text-sm font-medium text-foreground">
         {isDragOver ? "Drop your file here" : "Drop your resume here, or click to browse"}
       </p>
       <p className="mt-1.5 text-xs text-muted-foreground">

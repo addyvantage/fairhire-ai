@@ -18,8 +18,10 @@ export default function HomePage() {
   }, [isAuthenticated, isLoading, router])
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30">
-      <p className="text-sm text-muted-foreground">Redirecting...</p>
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <p className="rounded-full bg-muted px-4 py-2 text-sm font-medium text-muted-foreground">
+        Redirecting to your workspace…
+      </p>
     </div>
   )
 }

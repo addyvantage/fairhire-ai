@@ -1,65 +1,36 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import { useParams, useRouter } from "next/navigation"
 import {
+  AlertCircle,
   ArrowLeft,
   CheckCircle2,
-  Clock,
-  AlertCircle,
-  Loader2,
-  Briefcase,
-  GraduationCap,
-  Code2,
-  FolderOpen,
-  Award,
-  User,
-  Mail,
-  Phone,
-  Linkedin,
   ChevronDown,
   ChevronUp,
+  Clipboard,
   FileText,
+  Link2,
+  Sparkles,
 } from "lucide-react"
 import { motion } from "framer-motion"
 import { useAuth } from "@/lib/auth-context"
-import { getAnalysisByResume, type AnalysisResult, type JobMatchResult } from "@/lib/api"
+import { AnalysisResult, getAnalysisByResume, getJobProfile, JobProfile } from "@/lib/api"
+import { ScoreBreakdown } from "@/components/charts/score-breakdown"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Sidebar } from "@/components/layout/sidebar"
-import { ScoreBreakdown } from "@/components/ui/score-breakdown"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
+import { PageTransition } from "@/components/ui/page-transition"
+import { SectionCard } from "@/components/ui/section-card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { StatusPill } from "@/components/ui/status-pill"
+import { useToast } from "@/components/ui/use-toast"
+import { transitions } from "@/lib/motion"
 
-function AnalysisSkeleton() {
-  return (
-    <DashboardLayout sidebar={<Sidebar />}>
-      <div className="mx-auto max-w-3xl space-y-6">
-        <Skeleton className="h-5 w-32" />
-        <Skeleton className="h-8 w-48" />
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Skeleton className="h-32 rounded-xl" />
-          <Skeleton className="h-32 rounded-xl" />
-        </div>
-        <Skeleton className="h-48 rounded-xl" />
-        <Skeleton className="h-32 rounded-xl" />
-      </div>
-    </DashboardLayout>
-  )
-}
-
-const sectionIcons: Record<string, typeof Briefcase> = {
-  experience: Briefcase,
-  education: GraduationCap,
-  skills: Code2,
-  projects: FolderOpen,
-  certifications: Award,
-  summary: User,
-}
-
-function formatTimestamp(ts: string | null): string {
-  if (!ts) return "—"
-  const date = new Date(ts)
+function formatDateTime(value: string | null) {
+  if (!value) return "—"
+  const date = new Date(value)
   if (isNaN(date.getTime())) return "—"
   return date.toLocaleString("en-US", {
     month: "short",
@@ -70,15 +41,34 @@ function formatTimestamp(ts: string | null): string {
   })
 }
 
+function AnalysisSkeleton() {
+  return (
+    <DashboardLayout title="Analysis Results" description="Scoring candidate alignment and fit quality.">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
+        <Skeleton className="h-10 w-48 rounded-xl" />
+        <Skeleton className="h-56 w-full rounded-[var(--radius)]" />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-60 w-full rounded-[var(--radius)]" />
+          <Skeleton className="h-60 w-full rounded-[var(--radius)]" />
+        </div>
+        <Skeleton className="h-80 w-full rounded-[var(--radius)]" />
+      </div>
+    </DashboardLayout>
+  )
+}
+
 export default function AnalysisPage() {
   const params = useParams()
   const resumeId = Number(params.resumeId)
+  const router = useRouter()
   const { token, isAuthenticated, isLoading: authLoading } = useAuth()
+  const { toast } = useToast()
+
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
+  const [jobProfile, setJobProfile] = useState<JobProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showRawMeta, setShowRawMeta] = useState(false)
-  const router = useRouter()
+  const [showRawDetails, setShowRawDetails] = useState(false)
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -89,16 +79,16 @@ export default function AnalysisPage() {
   useEffect(() => {
     if (!token || !resumeId) return
 
+    const authToken = token
     let cancelled = false
     let interval: ReturnType<typeof setInterval> | undefined
 
-    async function fetchAnalysis() {
+    async function load() {
       try {
-        const result = await getAnalysisByResume(token!, resumeId)
+        const result = await getAnalysisByResume(authToken, resumeId)
         if (cancelled) return
-
         if (!result) {
-          setError("No analysis found for this resume")
+          setError("No analysis found for this resume.")
           setLoading(false)
           return
         }
@@ -106,610 +96,351 @@ export default function AnalysisPage() {
         setAnalysis(result)
         setLoading(false)
 
+        if (result.job_profile_id) {
+          getJobProfile(authToken, result.job_profile_id)
+            .then((profile) => {
+              if (!cancelled) setJobProfile(profile)
+            })
+            .catch(() => undefined)
+        }
+
         if (result.status === "queued" || result.status === "processing") {
           interval = setInterval(async () => {
             try {
-              const updated = await getAnalysisByResume(token!, resumeId)
-              if (cancelled || !updated) return
-              setAnalysis(updated)
-              if (updated.status === "completed" || updated.status === "failed") {
+              const next = await getAnalysisByResume(authToken, resumeId)
+              if (!next || cancelled) return
+              setAnalysis(next)
+              if (next.status === "completed" || next.status === "failed") {
                 clearInterval(interval)
               }
             } catch {
-              // retry silently
+              return
             }
-          }, 3000)
+          }, 2500)
         }
       } catch {
         if (!cancelled) {
-          setError("Failed to load analysis")
+          setError("Unable to load this analysis.")
           setLoading(false)
         }
       }
     }
 
-    fetchAnalysis()
-
+    load()
     return () => {
       cancelled = true
       if (interval) clearInterval(interval)
     }
-  }, [token, resumeId])
+  }, [resumeId, token])
 
-  if (authLoading || !isAuthenticated) return <AnalysisSkeleton />
-  if (loading) return <AnalysisSkeleton />
+  if (authLoading || !isAuthenticated || loading) return <AnalysisSkeleton />
 
-  if (error || !analysis) {
+  if (!analysis || error) {
     return (
-      <DashboardLayout sidebar={<Sidebar />}>
-        <div className="mx-auto max-w-3xl">
-          <Link
-            href="/dashboard/resumes"
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back to resumes
-          </Link>
-          <div className="rounded-xl border border-dashed bg-muted/20 py-16 text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
-              <AlertCircle className="h-5 w-5 text-muted-foreground/60" />
-            </div>
-            <p className="text-sm font-medium text-foreground/80">
-              {error || "No analysis found"}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Go back to resumes and run an analysis first
-            </p>
-            <Link href="/dashboard/resumes">
-              <Button variant="outline" size="sm" className="mt-4">
-                Go to Resumes
+      <DashboardLayout title="Analysis Results" description="Scoring candidate alignment and fit quality.">
+        <div className="mx-auto w-full max-w-4xl">
+          <EmptyState
+            icon={<AlertCircle className="h-5 w-5" />}
+            title={error ?? "No analysis available"}
+            description="Return to resumes and launch a new analysis run."
+            action={
+              <Button asChild>
+                <Link href="/dashboard/resumes">Back to resumes</Link>
               </Button>
-            </Link>
-          </div>
+            }
+          />
         </div>
       </DashboardLayout>
     )
   }
 
-  const meta = analysis.extracted_metadata
-  const jobResult = analysis.job_match_result
-  const isTargeted = analysis.job_profile_id != null && jobResult != null
-  const isInFlight = analysis.status === "queued" || analysis.status === "processing"
-  const isFailed = analysis.status === "failed"
+  const inProgress = analysis.status === "queued" || analysis.status === "processing"
+  const failed = analysis.status === "failed"
+  const targeted = analysis.status === "completed" && analysis.job_match_result
+  const profileTitle = jobProfile?.title ?? "Target role"
+  const profileSeniority = jobProfile?.seniority_level
+    ? ` (${jobProfile.seniority_level.replace("-", " ")})`
+    : ""
+
+  const scoreRows = targeted
+    ? [
+        { label: "Skills Match", score: analysis.job_match_result!.skill_match_score, weight: "40%", tone: "primary" as const },
+        { label: "Experience Match", score: analysis.job_match_result!.experience_match_score, weight: "25%", tone: "success" as const },
+        { label: "Role Alignment", score: analysis.job_match_result!.role_alignment_score, weight: "15%", tone: "warning" as const },
+        { label: "Seniority Fit", score: analysis.job_match_result!.seniority_fit_score, weight: "10%", tone: "neutral" as const },
+        { label: "Resume Quality", score: analysis.job_match_result!.quality_score, weight: "10%", tone: "primary" as const },
+      ]
+    : []
+
+  const skillColumns = useMemo(() => {
+    if (!analysis.job_match_result) return null
+    return [
+      {
+        label: "Matched skills",
+        tone: "bg-emerald-50 text-emerald-700",
+        items: [
+          ...analysis.job_match_result.details.matched_required,
+          ...analysis.job_match_result.details.matched_optional,
+        ],
+      },
+      {
+        label: "Missing skills",
+        tone: "bg-rose-50 text-rose-700",
+        items: analysis.job_match_result.details.missing_required,
+      },
+      {
+        label: "Additional skills",
+        tone: "bg-slate-100 text-slate-700",
+        items: analysis.job_match_result.details.extra_resume_skills,
+      },
+    ]
+  }, [analysis.job_match_result])
+
+  async function copyShareLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      toast({ title: "Link copied", description: "Analysis URL is ready to share." })
+    } catch {
+      toast({ title: "Copy failed", description: "Unable to copy link.", variant: "destructive" })
+    }
+  }
 
   return (
-    <DashboardLayout sidebar={<Sidebar />}>
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-        className="mx-auto max-w-3xl space-y-6"
-      >
-        <Link
-          href="/dashboard/resumes"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to resumes
-        </Link>
-
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Resume Analysis
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Detailed analysis results
-          </p>
-        </div>
-
-        {/* Status Timeline */}
-        <div className="rounded-xl border bg-background p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Status
-          </p>
-          <div className="flex items-center gap-3">
-            <StatusStep
-              label="Queued"
-              active={analysis.status === "queued"}
-              completed={analysis.status !== "queued"}
-            />
-            <StatusConnector
-              completed={analysis.status === "processing" || analysis.status === "completed"}
-            />
-            <StatusStep
-              label="Processing"
-              active={analysis.status === "processing"}
-              completed={analysis.status === "completed"}
-            />
-            <StatusConnector completed={analysis.status === "completed"} />
-            <StatusStep
-              label={isFailed ? "Failed" : "Completed"}
-              active={analysis.status === "completed" || isFailed}
-              completed={analysis.status === "completed"}
-              failed={isFailed}
-            />
-          </div>
-          {analysis.started_at && (
-            <p className="mt-3 text-xs text-muted-foreground">
-              Started: {formatTimestamp(analysis.started_at)}
-            </p>
-          )}
-          {analysis.completed_at && (
-            <p className="text-xs text-muted-foreground">
-              Completed: {formatTimestamp(analysis.completed_at)}
-            </p>
-          )}
-        </div>
-
-        {/* In-flight state */}
-        {isInFlight && (
-          <div className="rounded-xl border bg-background p-8 text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground mb-3" />
-            <p className="text-sm font-medium text-foreground">
-              Analysis in progress
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              This page will update automatically when complete
-            </p>
-          </div>
-        )}
-
-        {/* Failed state */}
-        {isFailed && (
-          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-foreground">Analysis failed</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {analysis.error_message || "An unknown error occurred"}
-                </p>
+    <DashboardLayout
+      title="Analysis Results"
+      description="Scoring candidate alignment and fit quality."
+      actions={
+        <>
+          <Button size="sm" variant="outline" onClick={copyShareLink}>
+            <Link2 className="h-4 w-4" />
+            Share
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/dashboard/resumes">
+              <ArrowLeft className="h-4 w-4" />
+              Back to resumes
+            </Link>
+          </Button>
+        </>
+      }
+    >
+      <PageTransition className="mx-auto w-full max-w-6xl">
+        <section className="surface-elevated overflow-hidden border border-primary/15">
+          <div className="grid gap-4 p-6 lg:grid-cols-[1.2fr_1fr] lg:p-8">
+            <div className="space-y-4">
+              <p className="inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-primary">
+                <Sparkles className="h-3.5 w-3.5" />
+                Candidate fit score
+              </p>
+              <h2 className="text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+                {analysis.match_score ?? analysis.job_match_result?.overall_match_score ?? "—"}% match for{" "}
+                <span className="text-primary">
+                  {targeted ? `${profileTitle}${profileSeniority}` : "this resume"}
+                </span>
+              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill status={analysis.status} />
+                <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                  Started {formatDateTime(analysis.started_at)}
+                </span>
+                <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                  Completed {formatDateTime(analysis.completed_at)}
+                </span>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-border/80 bg-background p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                Analysis Snapshot
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <SnapshotStat label="Job profile" value={analysis.job_profile_id ? "Targeted" : "General"} />
+                <SnapshotStat
+                  label="Experience detected"
+                  value={
+                    analysis.job_match_result
+                      ? `${analysis.job_match_result.details.experience_years_detected} yrs`
+                      : `${analysis.extracted_metadata?.experience_years ?? 0} yrs`
+                  }
+                />
+                <SnapshotStat
+                  label="Matched required"
+                  value={`${analysis.job_match_result?.details.matched_required.length ?? 0}`}
+                />
+                <SnapshotStat
+                  label="Missing required"
+                  value={`${analysis.job_match_result?.details.missing_required.length ?? 0}`}
+                />
               </div>
             </div>
           </div>
+        </section>
+
+        {inProgress && (
+          <SectionCard title="Analysis is running" description="This view refreshes automatically in the background.">
+            <div className="space-y-3">
+              <Skeleton className="h-3 w-full rounded-full" />
+              <Skeleton className="h-3 w-11/12 rounded-full" />
+              <Skeleton className="h-3 w-3/4 rounded-full" />
+            </div>
+          </SectionCard>
         )}
 
-        {/* Completed: Job-targeted view */}
-        {analysis.status === "completed" && isTargeted && jobResult && (
-          <JobTargetedView
-            analysis={analysis}
-            jobResult={jobResult}
-            showRawMeta={showRawMeta}
-            setShowRawMeta={setShowRawMeta}
-          />
+        {failed && (
+          <SectionCard title="Analysis failed" description={analysis.error_message ?? "An unknown issue interrupted this run."}>
+            <div className="flex items-center gap-2 rounded-xl border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4" />
+              Try re-running the analysis from the resumes page.
+            </div>
+          </SectionCard>
         )}
 
-        {/* Completed: Standalone view (backward compat) */}
-        {analysis.status === "completed" && !isTargeted && meta && (
-          <StandaloneView
-            analysis={analysis}
-            meta={meta}
-            showRawMeta={showRawMeta}
-            setShowRawMeta={setShowRawMeta}
-          />
+        {targeted && !inProgress && !failed && (
+          <>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <SectionCard title="Score Breakdown" description="Weighted dimensions used to compute fit.">
+                <ScoreBreakdown scores={scoreRows} />
+              </SectionCard>
+              <SectionCard title="Explanation Summary" description="Model rationale in plain language.">
+                <p className="text-sm leading-relaxed text-foreground">
+                  {analysis.job_match_result?.explanation_summary}
+                </p>
+              </SectionCard>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <SectionCard title="Strengths" description="Where the candidate is strongest for this role.">
+                <ul className="space-y-2">
+                  {analysis.job_match_result?.strengths.length ? (
+                    analysis.job_match_result.strengths.map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-sm text-foreground">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
+                        {item}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-sm text-muted-foreground">No strengths captured.</li>
+                  )}
+                </ul>
+              </SectionCard>
+
+              <SectionCard title="Gaps" description="Critical competencies missing or underrepresented.">
+                <ul className="space-y-2">
+                  {analysis.job_match_result?.gaps.length ? (
+                    analysis.job_match_result.gaps.map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-sm text-foreground">
+                        <AlertCircle className="mt-0.5 h-4 w-4 text-rose-600" />
+                        {item}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-sm text-muted-foreground">No significant gaps detected.</li>
+                  )}
+                </ul>
+              </SectionCard>
+            </div>
+
+            {skillColumns && (
+              <SectionCard title="Skills Matrix" description="Matched, missing, and additional capabilities at a glance.">
+                <div className="grid gap-4 lg:grid-cols-3">
+                  {skillColumns.map((column) => (
+                    <div key={column.label} className="rounded-xl border border-border/70 bg-muted/30 p-4">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                        {column.label}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {column.items.length > 0 ? (
+                          column.items.map((item) => (
+                            <span key={item} className={`rounded-full px-2.5 py-1 text-xs font-medium ${column.tone}`}>
+                              {item}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-muted-foreground">None</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </SectionCard>
+            )}
+          </>
         )}
-      </motion.div>
+
+        {!targeted && analysis.status === "completed" && analysis.extracted_metadata && (
+          <SectionCard title="Resume Metadata" description="Detected sections and resume quality indicators.">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <SnapshotStat label="Skills found" value={`${analysis.extracted_metadata.skill_count}`} />
+              <SnapshotStat label="Sections found" value={`${analysis.extracted_metadata.section_count}`} />
+              <SnapshotStat label="Word count" value={`${analysis.extracted_metadata.word_count}`} />
+              <SnapshotStat
+                label="Experience"
+                value={`${analysis.extracted_metadata.experience_years || 0} yrs`}
+              />
+            </div>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {analysis.extracted_metadata.skills.map((skill) => (
+                <span key={skill} className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                  {skill}
+                </span>
+              ))}
+            </div>
+          </SectionCard>
+        )}
+
+        <section className="surface-card overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowRawDetails((value) => !value)}
+            className="flex w-full items-center justify-between px-5 py-4 text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Clipboard className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm font-semibold text-foreground">Raw analysis data</p>
+            </div>
+            {showRawDetails ? (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            )}
+          </button>
+          <AnimateRaw open={showRawDetails}>
+            <div className="border-t border-border/80 px-5 py-4">
+              <pre className="max-h-96 overflow-auto rounded-lg bg-muted/40 p-4 text-xs text-foreground/85">
+                {JSON.stringify(analysis, null, 2)}
+              </pre>
+            </div>
+          </AnimateRaw>
+        </section>
+
+        <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+          <p className="inline-flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            This report is shareable. Use “Share” to copy a direct link.
+          </p>
+        </div>
+      </PageTransition>
     </DashboardLayout>
   )
 }
 
-function StatusStep({
-  label,
-  active,
-  completed,
-  failed = false,
-}: {
-  label: string
-  active: boolean
-  completed: boolean
-  failed?: boolean
-}) {
+function SnapshotStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center gap-2">
-      {failed ? (
-        <AlertCircle className="h-4 w-4 text-destructive" />
-      ) : completed ? (
-        <CheckCircle2 className="h-4 w-4 text-green-600" />
-      ) : active ? (
-        <Loader2 className="h-4 w-4 animate-spin text-foreground" />
-      ) : (
-        <Clock className="h-4 w-4 text-muted-foreground/40" />
-      )}
-      <span
-        className={`text-xs font-medium ${
-          failed
-            ? "text-destructive"
-            : completed
-              ? "text-green-600"
-              : active
-                ? "text-foreground"
-                : "text-muted-foreground/40"
-        }`}
-      >
-        {label}
-      </span>
+    <div className="rounded-xl border border-border/70 bg-muted/30 px-3 py-2.5">
+      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{value}</p>
     </div>
   )
 }
 
-function StatusConnector({ completed }: { completed: boolean }) {
+function AnimateRaw({ open, children }: { open: boolean; children: React.ReactNode }) {
   return (
-    <div
-      className={`h-px flex-1 ${completed ? "bg-green-600/40" : "bg-border"}`}
-    />
-  )
-}
-
-function ContactBadge({
-  icon: Icon,
-  label,
-  present,
-}: {
-  icon: typeof Mail
-  label: string
-  present: boolean
-}) {
-  return (
-    <div
-      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium ${
-        present
-          ? "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400"
-          : "bg-muted/40 text-muted-foreground"
-      }`}
+    <motion.div
+      initial={false}
+      animate={open ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
+      transition={transitions.fast}
+      className="overflow-hidden"
     >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-      {present ? (
-        <CheckCircle2 className="h-3 w-3" />
-      ) : (
-        <span className="text-[10px] opacity-60">missing</span>
-      )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Job-Targeted Analysis View
-// ---------------------------------------------------------------------------
-
-function JobTargetedView({
-  analysis,
-  jobResult,
-  showRawMeta,
-  setShowRawMeta,
-}: {
-  analysis: AnalysisResult
-  jobResult: JobMatchResult
-  showRawMeta: boolean
-  setShowRawMeta: (v: boolean) => void
-}) {
-  const details = jobResult.details
-  const scores = [
-    { label: "Skill Match", score: jobResult.skill_match_score, weight: "40%", color: "bg-blue-500" },
-    { label: "Experience", score: jobResult.experience_match_score, weight: "25%", color: "bg-violet-500" },
-    { label: "Role Alignment", score: jobResult.role_alignment_score, weight: "15%", color: "bg-amber-500" },
-    { label: "Seniority Fit", score: jobResult.seniority_fit_score, weight: "10%", color: "bg-cyan-500" },
-    { label: "Resume Quality", score: jobResult.quality_score, weight: "10%", color: "bg-emerald-500" },
-  ]
-
-  return (
-    <>
-      {/* Score Hero */}
-      <div className="rounded-xl border bg-background p-6 text-center">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Overall Match
-        </p>
-        <div className="text-5xl font-bold tracking-tight text-foreground tabular-nums">
-          {jobResult.overall_match_score}
-          <span className="text-2xl text-muted-foreground">%</span>
-        </div>
-      </div>
-
-      {/* Explanation Summary */}
-      <div className="rounded-xl border bg-background p-5">
-        <p className="text-sm text-foreground leading-relaxed">
-          {jobResult.explanation_summary}
-        </p>
-      </div>
-
-      {/* Score Breakdown */}
-      <div className="rounded-xl border bg-background p-5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">
-          Score Breakdown
-        </p>
-        <ScoreBreakdown scores={scores} />
-      </div>
-
-      {/* Gaps & Strengths */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {/* Gaps */}
-        <div className="rounded-xl border bg-background p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-red-600/70 dark:text-red-400/70 mb-3">
-            Gaps
-          </p>
-          {jobResult.gaps.length > 0 ? (
-            <ul className="space-y-2">
-              {jobResult.gaps.map((gap, i) => (
-                <li key={i} className="text-xs text-foreground/80 flex items-start gap-2">
-                  <AlertCircle className="h-3.5 w-3.5 text-red-500 shrink-0 mt-0.5" />
-                  {gap}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground">No significant gaps identified</p>
-          )}
-        </div>
-
-        {/* Strengths */}
-        <div className="rounded-xl border bg-background p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-green-600/70 dark:text-green-400/70 mb-3">
-            Strengths
-          </p>
-          {jobResult.strengths.length > 0 ? (
-            <ul className="space-y-2">
-              {jobResult.strengths.map((strength, i) => (
-                <li key={i} className="text-xs text-foreground/80 flex items-start gap-2">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0 mt-0.5" />
-                  {strength}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground">No notable strengths identified</p>
-          )}
-        </div>
-      </div>
-
-      {/* Skills Comparison */}
-      <div className="rounded-xl border bg-background p-5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-          Skills Comparison
-        </p>
-        <div className="space-y-3">
-          {details.matched_required.length > 0 && (
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-green-600/70 mb-1.5">
-                Matched Required
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {details.matched_required.map((s) => (
-                  <span key={s} className="rounded-md bg-green-50 dark:bg-green-950/30 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-400">
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {details.missing_required.length > 0 && (
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-red-600/70 mb-1.5">
-                Missing Required
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {details.missing_required.map((s) => (
-                  <span key={s} className="rounded-md bg-red-50 dark:bg-red-950/30 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400">
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {details.matched_optional.length > 0 && (
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-blue-600/70 mb-1.5">
-                Matched Optional
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {details.matched_optional.map((s) => (
-                  <span key={s} className="rounded-md bg-blue-50 dark:bg-blue-950/30 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-400">
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {details.extra_resume_skills.length > 0 && (
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50 mb-1.5">
-                Additional Resume Skills
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {details.extra_resume_skills.map((s) => (
-                  <span key={s} className="rounded-md bg-muted/40 px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Raw Details (collapsible) */}
-      <div className="rounded-xl border bg-background">
-        <button
-          type="button"
-          onClick={() => setShowRawMeta(!showRawMeta)}
-          className="flex w-full items-center justify-between p-5 text-left"
-        >
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Raw Details
-          </p>
-          {showRawMeta ? (
-            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          )}
-        </button>
-        {showRawMeta && (
-          <div className="border-t px-5 pb-5">
-            <pre className="mt-3 overflow-x-auto rounded-lg bg-muted/30 p-4 text-xs text-foreground/80">
-              {JSON.stringify(jobResult, null, 2)}
-            </pre>
-          </div>
-        )}
-      </div>
-    </>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Standalone Analysis View (backward compat)
-// ---------------------------------------------------------------------------
-
-function StandaloneView({
-  analysis,
-  meta,
-  showRawMeta,
-  setShowRawMeta,
-}: {
-  analysis: AnalysisResult
-  meta: NonNullable<AnalysisResult["extracted_metadata"]>
-  showRawMeta: boolean
-  setShowRawMeta: (v: boolean) => void
-}) {
-  return (
-    <>
-      {/* Score Hero */}
-      <div className="rounded-xl border bg-background p-6 text-center">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Match Score
-        </p>
-        <div className="text-5xl font-bold tracking-tight text-foreground tabular-nums">
-          {analysis.match_score}
-          <span className="text-2xl text-muted-foreground">%</span>
-        </div>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border bg-background p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Skills Found
-          </p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
-            {meta.skill_count}
-          </p>
-        </div>
-        <div className="rounded-xl border bg-background p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Experience
-          </p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
-            {meta.experience_years > 0
-              ? `${meta.experience_years} yr${meta.experience_years !== 1 ? "s" : ""}`
-              : "—"}
-          </p>
-        </div>
-        <div className="rounded-xl border bg-background p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Word Count
-          </p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
-            {meta.word_count.toLocaleString()}
-          </p>
-        </div>
-      </div>
-
-      {/* Skills */}
-      <div className="rounded-xl border bg-background p-5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-          Skills Extracted
-        </p>
-        {meta.skills.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {meta.skills.map((skill) => (
-              <span
-                key={skill}
-                className="inline-flex items-center rounded-md bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground"
-              >
-                {skill}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No skills detected</p>
-        )}
-      </div>
-
-      {/* Sections Detected */}
-      <div className="rounded-xl border bg-background p-5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-          Sections Detected
-        </p>
-        {meta.sections_detected.length > 0 ? (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {meta.sections_detected.map((section) => {
-              const Icon = sectionIcons[section] || FileText
-              return (
-                <div
-                  key={section}
-                  className="flex items-center gap-2.5 rounded-lg border bg-muted/20 px-3 py-2"
-                >
-                  <Icon className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium capitalize text-foreground">
-                    {section}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            No standard sections detected
-          </p>
-        )}
-      </div>
-
-      {/* Contact Info */}
-      <div className="rounded-xl border bg-background p-5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-          Contact Information
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <ContactBadge
-            icon={Mail}
-            label="Email"
-            present={meta.contact_info.has_email}
-          />
-          <ContactBadge
-            icon={Phone}
-            label="Phone"
-            present={meta.contact_info.has_phone}
-          />
-          <ContactBadge
-            icon={Linkedin}
-            label="LinkedIn"
-            present={meta.contact_info.has_linkedin}
-          />
-        </div>
-      </div>
-
-      {/* Raw Metadata (collapsible) */}
-      <div className="rounded-xl border bg-background">
-        <button
-          type="button"
-          onClick={() => setShowRawMeta(!showRawMeta)}
-          className="flex w-full items-center justify-between p-5 text-left"
-        >
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Raw Metadata
-          </p>
-          {showRawMeta ? (
-            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          )}
-        </button>
-        {showRawMeta && (
-          <div className="border-t px-5 pb-5">
-            <pre className="mt-3 overflow-x-auto rounded-lg bg-muted/30 p-4 text-xs text-foreground/80">
-              {JSON.stringify(meta, null, 2)}
-            </pre>
-          </div>
-        )}
-      </div>
-    </>
+      {children}
+    </motion.div>
   )
 }

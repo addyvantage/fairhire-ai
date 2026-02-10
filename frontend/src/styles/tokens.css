@@ -1,0 +1,67 @@
+:root {
+  --fh-background: #fafafa;
+  --fh-foreground: #0f172a;
+  --fh-card: #ffffff;
+  --fh-card-foreground: #0f172a;
+  --fh-popover: #ffffff;
+  --fh-popover-foreground: #0f172a;
+  --fh-primary: #334155;
+  --fh-primary-foreground: #f8fafc;
+  --fh-primary-soft: #eef2ff;
+  --fh-secondary: #f1f5f9;
+  --fh-secondary-foreground: #334155;
+  --fh-muted: #f8fafc;
+  --fh-muted-foreground: #64748b;
+  --fh-accent: #eef2ff;
+  --fh-accent-foreground: #334155;
+  --fh-destructive: #dc6b75;
+  --fh-destructive-foreground: #fff7f8;
+  --fh-success: #16a34a;
+  --fh-success-foreground: #f0fdf4;
+  --fh-warning: #d97706;
+  --fh-warning-foreground: #fffbeb;
+  --fh-border: #e2e8f0;
+  --fh-input: #e2e8f0;
+  --fh-ring: #475569;
+  --fh-radius: 0.9rem;
+  --fh-radius-sm: 0.65rem;
+  --fh-radius-lg: 1.2rem;
+  --fh-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.03);
+  --fh-shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.05);
+  --fh-shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08);
+  --fh-shadow-lg: 0 14px 40px rgba(15, 23, 42, 0.12);
+}
+
+@theme {
+  --color-background: var(--fh-background);
+  --color-foreground: var(--fh-foreground);
+  --color-card: var(--fh-card);
+  --color-card-foreground: var(--fh-card-foreground);
+  --color-popover: var(--fh-popover);
+  --color-popover-foreground: var(--fh-popover-foreground);
+  --color-primary: var(--fh-primary);
+  --color-primary-foreground: var(--fh-primary-foreground);
+  --color-primary-soft: var(--fh-primary-soft);
+  --color-secondary: var(--fh-secondary);
+  --color-secondary-foreground: var(--fh-secondary-foreground);
+  --color-muted: var(--fh-muted);
+  --color-muted-foreground: var(--fh-muted-foreground);
+  --color-accent: var(--fh-accent);
+  --color-accent-foreground: var(--fh-accent-foreground);
+  --color-destructive: var(--fh-destructive);
+  --color-destructive-foreground: var(--fh-destructive-foreground);
+  --color-success: var(--fh-success);
+  --color-success-foreground: var(--fh-success-foreground);
+  --color-warning: var(--fh-warning);
+  --color-warning-foreground: var(--fh-warning-foreground);
+  --color-border: var(--fh-border);
+  --color-input: var(--fh-input);
+  --color-ring: var(--fh-ring);
+  --radius: var(--fh-radius);
+  --radius-sm: var(--fh-radius-sm);
+  --radius-lg: var(--fh-radius-lg);
+  --shadow-xs: var(--fh-shadow-xs);
+  --shadow-sm: var(--fh-shadow-sm);
+  --shadow-md: var(--fh-shadow-md);
+  --shadow-lg: var(--fh-shadow-lg);
+}

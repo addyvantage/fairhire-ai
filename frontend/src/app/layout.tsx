@@ -5,8 +5,11 @@ import { ToastProvider } from "@/components/ui/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 
 export const metadata: Metadata = {
-  title: "FairHire-AI",
-  description: "Resume Intelligence and Hiring Bias Analysis",
+  title: {
+    default: "FairHire",
+    template: "%s · FairHire",
+  },
+  description: "Investor-grade resume intelligence and bias-aware hiring analysis.",
 }
 
 export default function RootLayout({
@@ -16,7 +19,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>
+      <body className="min-h-screen bg-background">
         <AuthProvider>
           <ToastProvider>
             {children}

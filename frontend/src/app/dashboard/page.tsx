@@ -1,37 +1,28 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { FileText, BarChart3, Target, TrendingUp, Briefcase, ArrowRight, Play } from "lucide-react"
+import { useRouter } from "next/navigation"
+import {
+  ArrowRight,
+  BarChart3,
+  Briefcase,
+  FileText,
+  Sparkles,
+  Target,
+  TrendingUp,
+} from "lucide-react"
 import { motion } from "framer-motion"
 import { useAuth } from "@/lib/auth-context"
-import { getDashboardStats, type DashboardStats } from "@/lib/api"
+import { DashboardStats, getDashboardStats } from "@/lib/api"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Sidebar } from "@/components/layout/sidebar"
-import { SummaryCard } from "@/components/ui/summary-card"
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
+import { KpiCard } from "@/components/ui/kpi-card"
+import { PageTransition } from "@/components/ui/page-transition"
+import { SectionCard } from "@/components/ui/section-card"
 import { Skeleton } from "@/components/ui/skeleton"
-
-function DashboardSkeleton() {
-  return (
-    <DashboardLayout sidebar={<Sidebar />}>
-      <div className="mx-auto max-w-5xl space-y-8">
-        <div className="space-y-2">
-          <Skeleton className="h-7 w-32" />
-          <Skeleton className="h-4 w-56" />
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="rounded-xl border bg-background p-5 space-y-3">
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-7 w-16" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </DashboardLayout>
-  )
-}
+import { fadeUp, staggerContainer } from "@/lib/motion"
 
 const EMPTY_STATS: DashboardStats = {
   total_resumes: 0,
@@ -42,13 +33,23 @@ const EMPTY_STATS: DashboardStats = {
   total_job_profiles: 0,
 }
 
-const stagger = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.06 } },
-}
-const fadeUp = {
-  hidden: { opacity: 0, y: 10 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] as const } },
+function DashboardSkeleton() {
+  return (
+    <DashboardLayout title="Dashboard" description="Executive overview of your hiring workflow">
+      <div className="mx-auto w-full max-w-6xl space-y-6">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="surface-card space-y-3 p-5">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-9 w-16" />
+              <Skeleton className="h-3 w-28" />
+            </div>
+          ))}
+        </div>
+        <Skeleton className="h-64 w-full rounded-[var(--radius)]" />
+      </div>
+    </DashboardLayout>
+  )
 }
 
 export default function DashboardPage() {
@@ -65,178 +66,123 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!token) return
-
     getDashboardStats(token)
-      .then((data) => {
-        setStats(data)
-        setLoaded(true)
-      })
-      .catch(() => {
-        setStats(EMPTY_STATS)
-        setLoaded(true)
-      })
+      .then((value) => setStats(value))
+      .catch(() => setStats(EMPTY_STATS))
+      .finally(() => setLoaded(true))
   }, [token])
 
-  if (isLoading || !isAuthenticated) {
-    return <DashboardSkeleton />
-  }
+  if (isLoading || !isAuthenticated) return <DashboardSkeleton />
 
-  const s = stats ?? EMPTY_STATS
-  const isEmpty = s.total_resumes === 0 && s.completed_analyses === 0
-  const hasResumesButNoAnalyses = s.total_resumes > 0 && s.completed_analyses === 0
+  const snapshot = stats ?? EMPTY_STATS
+  const hasData = snapshot.total_resumes > 0 || snapshot.total_analyses > 0
+
+  const activity = useMemo(() => {
+    const rows = [
+      `${snapshot.total_resumes} resume${snapshot.total_resumes === 1 ? "" : "s"} uploaded`,
+      `${snapshot.total_job_profiles} job profile${snapshot.total_job_profiles === 1 ? "" : "s"} configured`,
+      `${snapshot.completed_analyses} completed analys${snapshot.completed_analyses === 1 ? "is" : "es"}`,
+    ]
+    if (snapshot.avg_match_score > 0) {
+      rows.push(`Average candidate fit is ${snapshot.avg_match_score}%`)
+    }
+    return rows
+  }, [snapshot])
 
   return (
-    <DashboardLayout sidebar={<Sidebar />}>
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-        className="mx-auto max-w-5xl space-y-8"
-      >
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Dashboard
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Overview of your hiring pipeline
-          </p>
-        </div>
-
-        <motion.div
-          variants={stagger}
+    <DashboardLayout
+      title="Dashboard"
+      description="Executive overview of resume throughput and candidate quality."
+      actions={
+        <Button asChild size="sm">
+          <Link href="/dashboard/resumes" className="gap-2">
+            Upload Resume
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </Button>
+      }
+    >
+      <PageTransition className="mx-auto w-full max-w-6xl">
+        <motion.section
+          variants={staggerContainer(0.06)}
           initial="hidden"
           animate={loaded ? "show" : "hidden"}
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"
+          className="grid gap-4 md:grid-cols-2 xl:grid-cols-5"
         >
-          <motion.div variants={fadeUp}>
-            <SummaryCard
-              title="Resumes"
-              subtitle="Total uploaded"
-              stats={[
-                {
-                  icon: FileText,
-                  label: "total",
-                  value: s.total_resumes,
-                },
-              ]}
+          <motion.div variants={fadeUp()}>
+            <KpiCard
+              label="Total Resumes"
+              value={snapshot.total_resumes}
+              helper="Candidates imported"
+              icon={FileText}
             />
           </motion.div>
-
-          <motion.div variants={fadeUp}>
-            <SummaryCard
-              title="Analyses"
-              subtitle="Completed"
-              stats={[
-                {
-                  icon: BarChart3,
-                  label: "completed",
-                  value: s.completed_analyses,
-                },
-              ]}
+          <motion.div variants={fadeUp()}>
+            <KpiCard
+              label="Total Analyses"
+              value={snapshot.total_analyses}
+              helper={`${snapshot.completed_analyses} complete`}
+              icon={BarChart3}
             />
           </motion.div>
-
-          <motion.div variants={fadeUp}>
-            <SummaryCard
-              title="Completion"
-              subtitle="Analysis rate"
-              stats={[
-                {
-                  icon: TrendingUp,
-                  label: "rate",
-                  value:
-                    s.completion_rate > 0
-                      ? `${s.completion_rate}%`
-                      : "—",
-                },
-              ]}
+          <motion.div variants={fadeUp()}>
+            <KpiCard
+              label="Job Profiles"
+              value={snapshot.total_job_profiles}
+              helper="Template + custom roles"
+              icon={Briefcase}
             />
           </motion.div>
-
-          <motion.div variants={fadeUp}>
-            <SummaryCard
-              title="Match Quality"
-              subtitle="Average score"
-              stats={[
-                {
-                  icon: Target,
-                  label: "avg score",
-                  value:
-                    s.avg_match_score > 0
-                      ? `${s.avg_match_score}%`
-                      : "—",
-                },
-              ]}
+          <motion.div variants={fadeUp()}>
+            <KpiCard
+              label="Avg Match Score"
+              value={snapshot.avg_match_score > 0 ? `${snapshot.avg_match_score}%` : "—"}
+              helper="Across completed analyses"
+              icon={Target}
             />
           </motion.div>
-
-          <motion.div variants={fadeUp}>
-            <SummaryCard
-              title="Job Profiles"
-              subtitle="Available"
-              stats={[
-                {
-                  icon: Briefcase,
-                  label: "profiles",
-                  value: s.total_job_profiles,
-                },
-              ]}
+          <motion.div variants={fadeUp()}>
+            <KpiCard
+              label="Completion Rate"
+              value={snapshot.completion_rate > 0 ? `${snapshot.completion_rate}%` : "—"}
+              helper="Queue to completed"
+              icon={TrendingUp}
+              tone="positive"
             />
           </motion.div>
-        </motion.div>
+        </motion.section>
 
-        {loaded && isEmpty && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.25 }}
-            className="rounded-xl border border-dashed bg-muted/20 px-6 py-12 text-center"
+        {!hasData ? (
+          <EmptyState
+            icon={<Sparkles className="h-5 w-5" />}
+            title="Your workspace is ready"
+            description="Upload your first resume and run an analysis to populate your executive dashboard."
+            action={
+              <Button asChild>
+                <Link href="/dashboard/resumes">Start with resumes</Link>
+              </Button>
+            }
+          />
+        ) : (
+          <SectionCard
+            title="Recent Activity"
+            description="A quick pulse on what happened in your pipeline."
+            action={
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/dashboard/resumes">Review resumes</Link>
+              </Button>
+            }
           >
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
-              <FileText className="h-5 w-5 text-muted-foreground/60" />
+            <div className="grid gap-3 md:grid-cols-3">
+              {activity.map((item) => (
+                <div key={item} className="rounded-xl border border-border/80 bg-muted/40 px-4 py-3">
+                  <p className="text-sm text-foreground">{item}</p>
+                </div>
+              ))}
             </div>
-            <p className="text-sm font-medium text-foreground/80">
-              Get started by uploading a resume
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Your pipeline metrics will appear here once you begin
-            </p>
-            <Link
-              href="/dashboard/resumes"
-              className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-foreground/70 transition-colors"
-            >
-              Upload resumes
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </motion.div>
+          </SectionCard>
         )}
-
-        {loaded && hasResumesButNoAnalyses && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.25 }}
-            className="rounded-xl border border-dashed bg-muted/20 px-6 py-12 text-center"
-          >
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
-              <Play className="h-5 w-5 text-muted-foreground/60" />
-            </div>
-            <p className="text-sm font-medium text-foreground/80">
-              Analyze your first resume
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              You have {s.total_resumes} resume{s.total_resumes !== 1 ? "s" : ""} uploaded. Run an analysis to see insights.
-            </p>
-            <Link
-              href="/dashboard/resumes"
-              className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-foreground/70 transition-colors"
-            >
-              Go to resumes
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </motion.div>
-        )}
-      </motion.div>
+      </PageTransition>
     </DashboardLayout>
   )
 }

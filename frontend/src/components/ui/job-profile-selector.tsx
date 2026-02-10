@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Briefcase, Search, X } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { type JobProfile } from "@/lib/api"
+import { transitions } from "@/lib/motion"
 
 type Props = {
   profiles: JobProfile[]
@@ -44,55 +45,55 @@ export function JobProfileSelector({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 backdrop-blur-sm"
         onClick={onClose}
       >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          className="relative w-full max-w-lg rounded-2xl border bg-card shadow-xl"
+          transition={transitions.fast}
+          className="relative w-full max-w-2xl rounded-[var(--radius-lg)] border border-border bg-card shadow-[var(--shadow-lg)]"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b px-5 py-4">
+          <div className="flex items-center justify-between border-b border-border/80 px-6 py-5">
             <div>
-              <h2 className="text-sm font-semibold text-foreground">
+              <h2 className="text-base font-semibold text-foreground">
                 Select Job Profile
               </h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Choose a target role to score the resume against
               </p>
             </div>
             <button
               onClick={onClose}
-              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted/60 transition-colors"
+              className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted/60"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
 
           {/* Search */}
-          <div className="px-5 py-3 border-b">
+          <div className="border-b border-border/80 px-6 py-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
                 placeholder="Search profiles..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 autoFocus
-                className="w-full rounded-lg border bg-background py-2 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-foreground/10"
+                className="h-10 w-full rounded-xl border border-input bg-background py-2 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring/30"
               />
             </div>
           </div>
 
           {/* Profile list */}
-          <div className="max-h-80 overflow-y-auto p-2">
+          <div className="max-h-[420px] overflow-y-auto p-3">
             {userProfiles.length > 0 && (
-              <div className="mb-2">
-                <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+              <div className="mb-3">
+                <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                   Your Profiles
                 </p>
                 {userProfiles.map((profile) => (
@@ -108,7 +109,7 @@ export function JobProfileSelector({
 
             {templates.length > 0 && (
               <div>
-                <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                   Templates
                 </p>
                 {templates.map((profile) => (
@@ -146,9 +147,9 @@ function ProfileCard({
   return (
     <button
       onClick={onSelect}
-      className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-muted/60"
+      className="mb-1 flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-left hover:border-border hover:bg-muted/30"
     >
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted/60">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
         <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
       <div className="min-w-0 flex-1">
@@ -157,12 +158,12 @@ function ProfileCard({
             {profile.title}
           </span>
           {isLastUsed && (
-            <span className="shrink-0 rounded-full bg-foreground/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <span className="shrink-0 rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-medium text-primary">
               Last used
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 mt-0.5">
+        <div className="mt-0.5 flex items-center gap-2">
           {profile.seniority_level && (
             <span className="text-xs text-muted-foreground capitalize">
               {profile.seniority_level}
