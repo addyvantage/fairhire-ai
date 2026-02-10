@@ -49,6 +49,12 @@ services:
       - upload_data:/app/app/storage/uploads
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     depends_on:
       db:
         condition: service_healthy
@@ -71,6 +77,8 @@ services:
     volumes:
       - ./backend/app:/app/app
     depends_on:
+      backend:
+        condition: service_healthy
       db:
         condition: service_healthy
       redis:
@@ -90,7 +98,8 @@ services:
       - /app/node_modules
       - /app/.next
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   # ── Observability ─────────────────────────────────────────────────
   prometheus:
