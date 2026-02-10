@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { FileText, BarChart3, Target, TrendingUp, ArrowRight, Play } from "lucide-react"
+import { FileText, BarChart3, Target, TrendingUp, Briefcase, ArrowRight, Play } from "lucide-react"
 import { motion } from "framer-motion"
 import { useAuth } from "@/lib/auth-context"
 import { getDashboardStats, type DashboardStats } from "@/lib/api"
@@ -20,8 +20,8 @@ function DashboardSkeleton() {
           <Skeleton className="h-7 w-32" />
           <Skeleton className="h-4 w-56" />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="rounded-xl border bg-background p-5 space-y-3">
               <Skeleton className="h-3 w-20" />
               <Skeleton className="h-7 w-16" />
@@ -39,6 +39,7 @@ const EMPTY_STATS: DashboardStats = {
   completed_analyses: 0,
   avg_match_score: 0,
   completion_rate: 0,
+  total_job_profiles: 0,
 }
 
 const stagger = {
@@ -105,7 +106,7 @@ export default function DashboardPage() {
           variants={stagger}
           initial="hidden"
           animate={loaded ? "show" : "hidden"}
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"
         >
           <motion.div variants={fadeUp}>
             <SummaryCard
@@ -164,6 +165,20 @@ export default function DashboardPage() {
                     s.avg_match_score > 0
                       ? `${s.avg_match_score}%`
                       : "—",
+                },
+              ]}
+            />
+          </motion.div>
+
+          <motion.div variants={fadeUp}>
+            <SummaryCard
+              title="Job Profiles"
+              subtitle="Available"
+              stats={[
+                {
+                  icon: Briefcase,
+                  label: "profiles",
+                  value: s.total_job_profiles,
                 },
               ]}
             />

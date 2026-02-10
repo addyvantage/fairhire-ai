@@ -79,6 +79,86 @@ def run_resume_analysis_job(analysis_id: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Job-targeted resume analysis (Resume × JobProfile → scored result)
+# ---------------------------------------------------------------------------
+
+
+def run_job_targeted_analysis_job(analysis_id: int) -> dict:
+    """Execute job-targeted analysis for Resume × JobProfile.
+
+    Called by RQ in a worker process. Fully synchronous.
+    Loads the AnalysisRun, Resume, and JobProfile, runs the
+    JobTargetedScorer, and persists decomposed sub-scores.
+    """
+    from app.models.job_profile import JobProfile
+    from app.services.job_targeted_scorer import JobProfileData, JobTargetedScorer
+
+    logger.info("Starting job-targeted analysis", extra={"analysis_id": analysis_id})
+    db = SyncSessionLocal()
+    try:
+        analysis = db.get(AnalysisRun, analysis_id)
+        if analysis is None:
+            raise ValueError(f"AnalysisRun {analysis_id} not found")
+
+        # Transition to processing
+        analysis.status = "processing"
+        analysis.started_at = datetime.now(timezone.utc)
+        db.commit()
+
+        # Load resume
+        resume = db.get(Resume, analysis.resume_id)
+        if resume is None:
+            raise ValueError(f"Resume {analysis.resume_id} not found")
+
+        # Load job profile
+        profile_orm = db.get(JobProfile, analysis.job_profile_id)
+        if profile_orm is None:
+            raise ValueError(f"JobProfile {analysis.job_profile_id} not found")
+
+        # Convert ORM → lightweight DTO
+        profile_data = JobProfileData(
+            title=profile_orm.title,
+            normalized_title=profile_orm.normalized_title or "",
+            seniority_level=profile_orm.seniority_level or "mid",
+            required_skills=profile_orm.required_skills or [],
+            optional_skills=profile_orm.optional_skills or [],
+            responsibilities=profile_orm.responsibilities or [],
+            years_experience_min=profile_orm.years_experience_min,
+            years_experience_max=profile_orm.years_experience_max,
+        )
+
+        # Run scoring engine
+        scorer = JobTargetedScorer()
+        result = scorer.score(resume.parsed_text, profile_data)
+
+        # Persist results
+        analysis.overall_score = result.overall_match_score
+        analysis.result_payload = result.model_dump()
+        analysis.status = "completed"
+        analysis.completed_at = datetime.now(timezone.utc)
+        analysis.error_message = None
+        db.commit()
+
+        logger.info(
+            "Job-targeted analysis completed",
+            extra={"analysis_id": analysis_id, "score": result.overall_match_score},
+        )
+        return result.model_dump()
+
+    except Exception as exc:
+        logger.error(
+            "Job-targeted analysis failed",
+            extra={"analysis_id": analysis_id, "error": str(exc)},
+            exc_info=True,
+        )
+        _mark_failed_sync(db, analysis_id, exc)
+        raise
+
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # JD-based analysis job (existing, also converted to sync DB)
 # ---------------------------------------------------------------------------
 

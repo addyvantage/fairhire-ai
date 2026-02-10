@@ -9,10 +9,13 @@ import { useAuth } from "@/lib/auth-context"
 import {
   listResumes,
   uploadResume,
-  triggerAnalysis,
+  triggerTargetedAnalysis,
+  listJobProfiles,
+  getLastUsedProfile,
   getAnalysisByResume,
   type Resume,
   type AnalysisResult,
+  type JobProfile,
 } from "@/lib/api"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Sidebar } from "@/components/layout/sidebar"
@@ -20,6 +23,7 @@ import { FileUpload } from "@/components/ui/file-upload"
 import { VirtualizedTable } from "@/components/ui/virtualized-table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
+import { JobProfileSelector } from "@/components/ui/job-profile-selector"
 import { useToast } from "@/components/ui/use-toast"
 
 function ResumesSkeleton() {
@@ -74,6 +78,11 @@ export default function ResumesPage() {
   const router = useRouter()
   const { toast } = useToast()
 
+  // Job profile selector state
+  const [jobProfiles, setJobProfiles] = useState<JobProfile[]>([])
+  const [lastUsedProfileId, setLastUsedProfileId] = useState<number | null>(null)
+  const [selectorResumeId, setSelectorResumeId] = useState<number | null>(null)
+
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.replace("/login")
@@ -84,6 +93,15 @@ export default function ResumesPage() {
   const tokenRef = useRef(token)
   useEffect(() => {
     tokenRef.current = token
+  }, [token])
+
+  // Fetch job profiles and last-used profile on mount
+  useEffect(() => {
+    if (!token) return
+    listJobProfiles(token).then(setJobProfiles).catch(() => {})
+    getLastUsedProfile(token)
+      .then((p) => setLastUsedProfileId(p?.id ?? null))
+      .catch(() => {})
   }, [token])
 
   const startPolling = useCallback((resumeId: number) => {
@@ -173,43 +191,60 @@ export default function ResumesPage() {
     }
   }, [fetchResumes])
 
-  const handleAnalyze = useCallback(async (resumeId: number) => {
-    const t = tokenRef.current
-    if (!t) return
-    try {
-      await triggerAnalysis(t, resumeId)
-      toast({ title: "Analysis started", description: "Processing your resume..." })
+  const handleAnalyze = useCallback((resumeId: number) => {
+    setSelectorResumeId(resumeId)
+  }, [])
 
-      setResumes((prev) =>
-        prev.map((r) =>
-          r.id === resumeId
-            ? {
-                ...r,
-                analysis: {
-                  id: 0,
-                  resume_id: resumeId,
-                  status: "queued" as const,
-                  match_score: null,
-                  extracted_metadata: null,
-                  error_message: null,
-                  started_at: null,
-                  completed_at: null,
-                  created_at: new Date().toISOString(),
-                },
-              }
-            : r
+  const handleProfileSelected = useCallback(
+    async (profile: JobProfile) => {
+      const resumeId = selectorResumeId
+      setSelectorResumeId(null)
+      if (!resumeId) return
+
+      const t = tokenRef.current
+      if (!t) return
+      try {
+        await triggerTargetedAnalysis(t, resumeId, profile.id)
+        setLastUsedProfileId(profile.id)
+        toast({
+          title: "Analysis started",
+          description: `Scoring against ${profile.title}...`,
+        })
+
+        setResumes((prev) =>
+          prev.map((r) =>
+            r.id === resumeId
+              ? {
+                  ...r,
+                  analysis: {
+                    id: 0,
+                    resume_id: resumeId,
+                    job_profile_id: profile.id,
+                    status: "queued" as const,
+                    match_score: null,
+                    extracted_metadata: null,
+                    job_match_result: null,
+                    error_message: null,
+                    started_at: null,
+                    completed_at: null,
+                    created_at: new Date().toISOString(),
+                  },
+                }
+              : r
+          )
         )
-      )
 
-      startPolling(resumeId)
-    } catch (err) {
-      toast({
-        title: "Failed to start analysis",
-        description: (err as Error).message,
-        variant: "destructive",
-      })
-    }
-  }, [toast, startPolling])
+        startPolling(resumeId)
+      } catch (err) {
+        toast({
+          title: "Failed to start analysis",
+          description: (err as Error).message,
+          variant: "destructive",
+        })
+      }
+    },
+    [selectorResumeId, toast, startPolling]
+  )
 
   async function handleFileSelect(file: File) {
     if (!token) return
@@ -419,6 +454,15 @@ export default function ResumesPage() {
           </motion.div>
         )}
       </motion.div>
+
+      {selectorResumeId !== null && (
+        <JobProfileSelector
+          profiles={jobProfiles}
+          lastUsedProfileId={lastUsedProfileId}
+          onSelect={handleProfileSelected}
+          onClose={() => setSelectorResumeId(null)}
+        />
+      )}
     </DashboardLayout>
   )
 }

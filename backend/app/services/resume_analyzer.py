@@ -13,31 +13,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
-# Expanded skill set for standalone extraction
-_KNOWN_SKILLS: set[str] = {
-    # Programming languages
-    "python", "java", "javascript", "typescript", "c++", "c#", "go", "rust",
-    "ruby", "php", "swift", "kotlin", "scala", "r", "matlab", "perl",
-    # Web frameworks
-    "react", "angular", "vue", "next.js", "nuxt", "django", "flask",
-    "fastapi", "express", "spring", "rails", "laravel",
-    # Data / ML
-    "tensorflow", "pytorch", "scikit-learn", "pandas", "numpy", "spark",
-    "hadoop", "kafka", "airflow", "mlflow", "jupyter",
-    "nlp", "ml", "deep learning", "machine learning", "data science",
-    # Databases
-    "sql", "postgresql", "mysql", "mongodb", "redis", "elasticsearch",
-    "dynamodb", "cassandra", "sqlite", "oracle",
-    # Cloud & DevOps
-    "aws", "gcp", "azure", "docker", "kubernetes", "terraform",
-    "jenkins", "github actions", "gitlab ci", "ci/cd", "ansible",
-    # Tools & Platforms
-    "git", "linux", "jira", "figma", "tableau", "power bi",
-    "rest", "graphql", "grpc", "microservices",
-    # Soft skills / domains
-    "agile", "scrum", "leadership", "project management",
-}
+from app.services.skill_taxonomy import KNOWN_SKILLS
 
 # Section heading patterns (case-insensitive)
 _SECTION_PATTERNS: dict[str, list[str]] = {
@@ -105,7 +81,7 @@ def _extract_skills(text: str) -> list[str]:
     tokens = {token.lower() for token in re.findall(r"[a-zA-Z0-9.+#/-]+", text)}
     found: set[str] = set()
 
-    for skill in _KNOWN_SKILLS:
+    for skill in KNOWN_SKILLS:
         if " " in skill:
             # Multi-word skills: substring match
             if skill in text_lower:

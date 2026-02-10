@@ -18,9 +18,11 @@ from app.schemas.analysis import (
     ResumeAnalysisQueued,
     ResumeAnalysisRequest,
 )
+from app.schemas.job_profile import TargetedAnalysisRequest
 from app.services.analysis_orchestrator import AnalysisOrchestrator
 from app.services.async_analysis import (
     enqueue_analysis,
+    enqueue_job_targeted_analysis,
     enqueue_resume_analysis,
     get_analysis_by_id,
     get_job_status,
@@ -32,12 +34,22 @@ router = APIRouter()
 
 def _analysis_to_out(analysis: AnalysisRun) -> ResumeAnalysisOut:
     """Map AnalysisRun to ResumeAnalysisOut response schema."""
+    payload = analysis.result_payload
+
+    # Job-targeted analyses store the full JobMatchResult in result_payload.
+    # Standalone analyses store extracted_metadata dict instead.
+    is_targeted = analysis.job_profile_id is not None
+    job_match_result = payload if is_targeted and payload else None
+    extracted_metadata = payload if not is_targeted and payload else None
+
     return ResumeAnalysisOut(
         id=analysis.id,
         resume_id=analysis.resume_id,
+        job_profile_id=analysis.job_profile_id,
         status=analysis.status,
         match_score=analysis.overall_score,
-        extracted_metadata=analysis.result_payload,
+        extracted_metadata=extracted_metadata,
+        job_match_result=job_match_result,
         error_message=analysis.error_message,
         started_at=analysis.started_at,
         completed_at=analysis.completed_at,
@@ -68,6 +80,34 @@ async def trigger_resume_analysis(
     analysis = await enqueue_resume_analysis(
         user_id=user.id,
         resume_id=payload.resume_id,
+        db=db,
+    )
+    return ResumeAnalysisQueued(
+        analysis_id=analysis.id,
+        status=analysis.status,
+        created_at=analysis.created_at,
+    )
+
+
+@router.post(
+    "/run-targeted",
+    response_model=ResumeAnalysisQueued,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_targeted_analysis(
+    payload: TargetedAnalysisRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ResumeAnalysisQueued:
+    """Trigger job-targeted resume analysis (Resume × JobProfile).
+
+    Creates an AnalysisRun (status=queued) and enqueues the targeted scoring job.
+    Also updates the user's last_job_profile_id for convenience.
+    """
+    analysis = await enqueue_job_targeted_analysis(
+        user_id=user.id,
+        resume_id=payload.resume_id,
+        job_profile_id=payload.job_profile_id,
         db=db,
     )
     return ResumeAnalysisQueued(

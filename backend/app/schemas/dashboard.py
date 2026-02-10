@@ -7,3 +7,4 @@ class DashboardStatsOut(BaseModel):
     completed_analyses: int
     avg_match_score: float
     completion_rate: float
+    total_job_profiles: int

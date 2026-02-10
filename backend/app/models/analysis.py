@@ -16,6 +16,9 @@ class AnalysisRun(Base):
     job_description_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("job_descriptions.id", ondelete="CASCADE"), nullable=True
     )
+    job_profile_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("job_profiles.id", ondelete="SET NULL"), nullable=True
+    )
     overall_score: Mapped[Optional[float]] = mapped_column(nullable=True)
     result_payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")

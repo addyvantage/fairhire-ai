@@ -24,9 +24,10 @@ import {
 } from "lucide-react"
 import { motion } from "framer-motion"
 import { useAuth } from "@/lib/auth-context"
-import { getAnalysisByResume, type AnalysisResult } from "@/lib/api"
+import { getAnalysisByResume, type AnalysisResult, type JobMatchResult } from "@/lib/api"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Sidebar } from "@/components/layout/sidebar"
+import { ScoreBreakdown } from "@/components/ui/score-breakdown"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 
@@ -171,6 +172,8 @@ export default function AnalysisPage() {
   }
 
   const meta = analysis.extracted_metadata
+  const jobResult = analysis.job_match_result
+  const isTargeted = analysis.job_profile_id != null && jobResult != null
   const isInFlight = analysis.status === "queued" || analysis.status === "processing"
   const isFailed = analysis.status === "failed"
 
@@ -266,149 +269,24 @@ export default function AnalysisPage() {
           </div>
         )}
 
-        {/* Completed results */}
-        {analysis.status === "completed" && meta && (
-          <>
-            {/* Score Hero */}
-            <div className="rounded-xl border bg-background p-6 text-center">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Match Score
-              </p>
-              <div className="text-5xl font-bold tracking-tight text-foreground tabular-nums">
-                {analysis.match_score}
-                <span className="text-2xl text-muted-foreground">%</span>
-              </div>
-            </div>
+        {/* Completed: Job-targeted view */}
+        {analysis.status === "completed" && isTargeted && jobResult && (
+          <JobTargetedView
+            analysis={analysis}
+            jobResult={jobResult}
+            showRawMeta={showRawMeta}
+            setShowRawMeta={setShowRawMeta}
+          />
+        )}
 
-            {/* Stats Grid */}
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-xl border bg-background p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Skills Found
-                </p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
-                  {meta.skill_count}
-                </p>
-              </div>
-              <div className="rounded-xl border bg-background p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Experience
-                </p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
-                  {meta.experience_years > 0
-                    ? `${meta.experience_years} yr${meta.experience_years !== 1 ? "s" : ""}`
-                    : "—"}
-                </p>
-              </div>
-              <div className="rounded-xl border bg-background p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Word Count
-                </p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
-                  {meta.word_count.toLocaleString()}
-                </p>
-              </div>
-            </div>
-
-            {/* Skills */}
-            <div className="rounded-xl border bg-background p-5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                Skills Extracted
-              </p>
-              {meta.skills.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {meta.skills.map((skill) => (
-                    <span
-                      key={skill}
-                      className="inline-flex items-center rounded-md bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No skills detected</p>
-              )}
-            </div>
-
-            {/* Sections Detected */}
-            <div className="rounded-xl border bg-background p-5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                Sections Detected
-              </p>
-              {meta.sections_detected.length > 0 ? (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {meta.sections_detected.map((section) => {
-                    const Icon = sectionIcons[section] || FileText
-                    return (
-                      <div
-                        key={section}
-                        className="flex items-center gap-2.5 rounded-lg border bg-muted/20 px-3 py-2"
-                      >
-                        <Icon className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium capitalize text-foreground">
-                          {section}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No standard sections detected
-                </p>
-              )}
-            </div>
-
-            {/* Contact Info */}
-            <div className="rounded-xl border bg-background p-5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                Contact Information
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <ContactBadge
-                  icon={Mail}
-                  label="Email"
-                  present={meta.contact_info.has_email}
-                />
-                <ContactBadge
-                  icon={Phone}
-                  label="Phone"
-                  present={meta.contact_info.has_phone}
-                />
-                <ContactBadge
-                  icon={Linkedin}
-                  label="LinkedIn"
-                  present={meta.contact_info.has_linkedin}
-                />
-              </div>
-            </div>
-
-            {/* Raw Metadata (collapsible) */}
-            <div className="rounded-xl border bg-background">
-              <button
-                type="button"
-                onClick={() => setShowRawMeta(!showRawMeta)}
-                className="flex w-full items-center justify-between p-5 text-left"
-              >
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Raw Metadata
-                </p>
-                {showRawMeta ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                )}
-              </button>
-              {showRawMeta && (
-                <div className="border-t px-5 pb-5">
-                  <pre className="mt-3 overflow-x-auto rounded-lg bg-muted/30 p-4 text-xs text-foreground/80">
-                    {JSON.stringify(meta, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </div>
-          </>
+        {/* Completed: Standalone view (backward compat) */}
+        {analysis.status === "completed" && !isTargeted && meta && (
+          <StandaloneView
+            analysis={analysis}
+            meta={meta}
+            showRawMeta={showRawMeta}
+            setShowRawMeta={setShowRawMeta}
+          />
         )}
       </motion.div>
     </DashboardLayout>
@@ -487,5 +365,351 @@ function ContactBadge({
         <span className="text-[10px] opacity-60">missing</span>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Job-Targeted Analysis View
+// ---------------------------------------------------------------------------
+
+function JobTargetedView({
+  analysis,
+  jobResult,
+  showRawMeta,
+  setShowRawMeta,
+}: {
+  analysis: AnalysisResult
+  jobResult: JobMatchResult
+  showRawMeta: boolean
+  setShowRawMeta: (v: boolean) => void
+}) {
+  const details = jobResult.details
+  const scores = [
+    { label: "Skill Match", score: jobResult.skill_match_score, weight: "40%", color: "bg-blue-500" },
+    { label: "Experience", score: jobResult.experience_match_score, weight: "25%", color: "bg-violet-500" },
+    { label: "Role Alignment", score: jobResult.role_alignment_score, weight: "15%", color: "bg-amber-500" },
+    { label: "Seniority Fit", score: jobResult.seniority_fit_score, weight: "10%", color: "bg-cyan-500" },
+    { label: "Resume Quality", score: jobResult.quality_score, weight: "10%", color: "bg-emerald-500" },
+  ]
+
+  return (
+    <>
+      {/* Score Hero */}
+      <div className="rounded-xl border bg-background p-6 text-center">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+          Overall Match
+        </p>
+        <div className="text-5xl font-bold tracking-tight text-foreground tabular-nums">
+          {jobResult.overall_match_score}
+          <span className="text-2xl text-muted-foreground">%</span>
+        </div>
+      </div>
+
+      {/* Explanation Summary */}
+      <div className="rounded-xl border bg-background p-5">
+        <p className="text-sm text-foreground leading-relaxed">
+          {jobResult.explanation_summary}
+        </p>
+      </div>
+
+      {/* Score Breakdown */}
+      <div className="rounded-xl border bg-background p-5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-4">
+          Score Breakdown
+        </p>
+        <ScoreBreakdown scores={scores} />
+      </div>
+
+      {/* Gaps & Strengths */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/* Gaps */}
+        <div className="rounded-xl border bg-background p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-red-600/70 dark:text-red-400/70 mb-3">
+            Gaps
+          </p>
+          {jobResult.gaps.length > 0 ? (
+            <ul className="space-y-2">
+              {jobResult.gaps.map((gap, i) => (
+                <li key={i} className="text-xs text-foreground/80 flex items-start gap-2">
+                  <AlertCircle className="h-3.5 w-3.5 text-red-500 shrink-0 mt-0.5" />
+                  {gap}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">No significant gaps identified</p>
+          )}
+        </div>
+
+        {/* Strengths */}
+        <div className="rounded-xl border bg-background p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-green-600/70 dark:text-green-400/70 mb-3">
+            Strengths
+          </p>
+          {jobResult.strengths.length > 0 ? (
+            <ul className="space-y-2">
+              {jobResult.strengths.map((strength, i) => (
+                <li key={i} className="text-xs text-foreground/80 flex items-start gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0 mt-0.5" />
+                  {strength}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">No notable strengths identified</p>
+          )}
+        </div>
+      </div>
+
+      {/* Skills Comparison */}
+      <div className="rounded-xl border bg-background p-5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+          Skills Comparison
+        </p>
+        <div className="space-y-3">
+          {details.matched_required.length > 0 && (
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-green-600/70 mb-1.5">
+                Matched Required
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {details.matched_required.map((s) => (
+                  <span key={s} className="rounded-md bg-green-50 dark:bg-green-950/30 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-400">
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {details.missing_required.length > 0 && (
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-red-600/70 mb-1.5">
+                Missing Required
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {details.missing_required.map((s) => (
+                  <span key={s} className="rounded-md bg-red-50 dark:bg-red-950/30 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400">
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {details.matched_optional.length > 0 && (
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-blue-600/70 mb-1.5">
+                Matched Optional
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {details.matched_optional.map((s) => (
+                  <span key={s} className="rounded-md bg-blue-50 dark:bg-blue-950/30 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-400">
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {details.extra_resume_skills.length > 0 && (
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50 mb-1.5">
+                Additional Resume Skills
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {details.extra_resume_skills.map((s) => (
+                  <span key={s} className="rounded-md bg-muted/40 px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Raw Details (collapsible) */}
+      <div className="rounded-xl border bg-background">
+        <button
+          type="button"
+          onClick={() => setShowRawMeta(!showRawMeta)}
+          className="flex w-full items-center justify-between p-5 text-left"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Raw Details
+          </p>
+          {showRawMeta ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+        {showRawMeta && (
+          <div className="border-t px-5 pb-5">
+            <pre className="mt-3 overflow-x-auto rounded-lg bg-muted/30 p-4 text-xs text-foreground/80">
+              {JSON.stringify(jobResult, null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Standalone Analysis View (backward compat)
+// ---------------------------------------------------------------------------
+
+function StandaloneView({
+  analysis,
+  meta,
+  showRawMeta,
+  setShowRawMeta,
+}: {
+  analysis: AnalysisResult
+  meta: NonNullable<AnalysisResult["extracted_metadata"]>
+  showRawMeta: boolean
+  setShowRawMeta: (v: boolean) => void
+}) {
+  return (
+    <>
+      {/* Score Hero */}
+      <div className="rounded-xl border bg-background p-6 text-center">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+          Match Score
+        </p>
+        <div className="text-5xl font-bold tracking-tight text-foreground tabular-nums">
+          {analysis.match_score}
+          <span className="text-2xl text-muted-foreground">%</span>
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded-xl border bg-background p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Skills Found
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+            {meta.skill_count}
+          </p>
+        </div>
+        <div className="rounded-xl border bg-background p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Experience
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+            {meta.experience_years > 0
+              ? `${meta.experience_years} yr${meta.experience_years !== 1 ? "s" : ""}`
+              : "—"}
+          </p>
+        </div>
+        <div className="rounded-xl border bg-background p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Word Count
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+            {meta.word_count.toLocaleString()}
+          </p>
+        </div>
+      </div>
+
+      {/* Skills */}
+      <div className="rounded-xl border bg-background p-5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+          Skills Extracted
+        </p>
+        {meta.skills.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {meta.skills.map((skill) => (
+              <span
+                key={skill}
+                className="inline-flex items-center rounded-md bg-muted/60 px-2.5 py-1 text-xs font-medium text-foreground"
+              >
+                {skill}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No skills detected</p>
+        )}
+      </div>
+
+      {/* Sections Detected */}
+      <div className="rounded-xl border bg-background p-5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+          Sections Detected
+        </p>
+        {meta.sections_detected.length > 0 ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {meta.sections_detected.map((section) => {
+              const Icon = sectionIcons[section] || FileText
+              return (
+                <div
+                  key={section}
+                  className="flex items-center gap-2.5 rounded-lg border bg-muted/20 px-3 py-2"
+                >
+                  <Icon className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium capitalize text-foreground">
+                    {section}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No standard sections detected
+          </p>
+        )}
+      </div>
+
+      {/* Contact Info */}
+      <div className="rounded-xl border bg-background p-5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+          Contact Information
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <ContactBadge
+            icon={Mail}
+            label="Email"
+            present={meta.contact_info.has_email}
+          />
+          <ContactBadge
+            icon={Phone}
+            label="Phone"
+            present={meta.contact_info.has_phone}
+          />
+          <ContactBadge
+            icon={Linkedin}
+            label="LinkedIn"
+            present={meta.contact_info.has_linkedin}
+          />
+        </div>
+      </div>
+
+      {/* Raw Metadata (collapsible) */}
+      <div className="rounded-xl border bg-background">
+        <button
+          type="button"
+          onClick={() => setShowRawMeta(!showRawMeta)}
+          className="flex w-full items-center justify-between p-5 text-left"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Raw Metadata
+          </p>
+          {showRawMeta ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+        {showRawMeta && (
+          <div className="border-t px-5 pb-5">
+            <pre className="mt-3 overflow-x-auto rounded-lg bg-muted/30 p-4 text-xs text-foreground/80">
+              {JSON.stringify(meta, null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
+    </>
   )
 }

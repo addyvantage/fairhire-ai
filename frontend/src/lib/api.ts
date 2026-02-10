@@ -19,6 +19,7 @@ export type DashboardStats = {
   completed_analyses: number;
   avg_match_score: number;
   completion_rate: number;
+  total_job_profiles: number;
 };
 
 export type AnalysisQueued = {
@@ -27,9 +28,48 @@ export type AnalysisQueued = {
   created_at: string;
 };
 
+export type JobProfile = {
+  id: number;
+  user_id: number | null;
+  title: string;
+  normalized_title: string | null;
+  seniority_level: string | null;
+  required_skills: string[] | null;
+  optional_skills: string[] | null;
+  responsibilities: string[] | null;
+  years_experience_min: number | null;
+  years_experience_max: number | null;
+  source: string;
+  raw_description: string | null;
+  is_template: boolean;
+  created_at: string;
+};
+
+export type JobMatchResult = {
+  overall_match_score: number;
+  skill_match_score: number;
+  experience_match_score: number;
+  role_alignment_score: number;
+  seniority_fit_score: number;
+  quality_score: number;
+  gaps: string[];
+  strengths: string[];
+  explanation_summary: string;
+  details: {
+    resume_skills: string[];
+    matched_required: string[];
+    matched_optional: string[];
+    missing_required: string[];
+    extra_resume_skills: string[];
+    experience_years_detected: number;
+    cosine_similarity: number;
+  };
+};
+
 export type AnalysisResult = {
   id: number;
   resume_id: number;
+  job_profile_id: number | null;
   status: "queued" | "processing" | "completed" | "failed";
   match_score: number | null;
   extracted_metadata: {
@@ -45,6 +85,7 @@ export type AnalysisResult = {
     };
     word_count: number;
   } | null;
+  job_match_result: JobMatchResult | null;
   error_message: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -210,5 +251,123 @@ export async function getAnalysisByResume(
     throw new Error("Failed to fetch analysis");
   }
 
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Job Profile API
+// ---------------------------------------------------------------------------
+
+export async function listJobProfiles(token: string): Promise<JobProfile[]> {
+  const response = await fetch(`${API_BASE_URL}/job-profiles/`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error("Failed to fetch job profiles");
+  return response.json();
+}
+
+export async function createJobProfile(
+  token: string,
+  payload: {
+    title: string;
+    raw_description?: string;
+    seniority_level?: string;
+    required_skills?: string[];
+    optional_skills?: string[];
+    responsibilities?: string[];
+    years_experience_min?: number;
+    years_experience_max?: number;
+  }
+): Promise<JobProfile> {
+  const response = await fetch(`${API_BASE_URL}/job-profiles/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to create job profile");
+  }
+  return response.json();
+}
+
+export async function getJobProfile(
+  token: string,
+  profileId: number
+): Promise<JobProfile> {
+  const response = await fetch(`${API_BASE_URL}/job-profiles/${profileId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error("Failed to fetch job profile");
+  return response.json();
+}
+
+export async function updateJobProfile(
+  token: string,
+  profileId: number,
+  payload: Partial<{
+    title: string;
+    seniority_level: string;
+    required_skills: string[];
+    optional_skills: string[];
+    responsibilities: string[];
+    years_experience_min: number;
+    years_experience_max: number;
+  }>
+): Promise<JobProfile> {
+  const response = await fetch(`${API_BASE_URL}/job-profiles/${profileId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error("Failed to update job profile");
+  return response.json();
+}
+
+export async function deleteJobProfile(
+  token: string,
+  profileId: number
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/job-profiles/${profileId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error("Failed to delete job profile");
+}
+
+export async function getLastUsedProfile(
+  token: string
+): Promise<JobProfile | null> {
+  const response = await fetch(`${API_BASE_URL}/job-profiles/last-used`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error("Failed to fetch last used profile");
+  const data = await response.json();
+  return data || null;
+}
+
+export async function triggerTargetedAnalysis(
+  token: string,
+  resumeId: number,
+  jobProfileId: number
+): Promise<AnalysisQueued> {
+  const response = await fetch(`${API_BASE_URL}/analysis/run-targeted`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ resume_id: resumeId, job_profile_id: jobProfileId }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to trigger targeted analysis");
+  }
   return response.json();
 }

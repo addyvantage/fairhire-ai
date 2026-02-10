@@ -35,6 +35,10 @@ _SCHEMA_MIGRATIONS = [
     # Add new timestamp columns
     "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
     "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
+    # Job-targeted analysis: add job_profile_id FK to analysis_runs
+    "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS job_profile_id INTEGER REFERENCES job_profiles(id) ON DELETE SET NULL",
+    # Remember last-used job profile per user
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_job_profile_id INTEGER REFERENCES job_profiles(id) ON DELETE SET NULL",
 ]
 
 
@@ -52,6 +56,12 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             for migration_sql in _SCHEMA_MIGRATIONS:
                 await connection.execute(text(migration_sql))
         logger.info("Database tables verified")
+
+        # Seed job profile templates (idempotent)
+        from app.services.job_profile_templates import seed_templates
+
+        await seed_templates(engine)
+        logger.info("Job profile templates seeded")
     except Exception:
         logger.warning("Database unavailable at startup — skipping table creation")
 

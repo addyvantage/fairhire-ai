@@ -78,9 +78,11 @@ class ResumeAnalysisOut(BaseModel):
 
     id: int
     resume_id: int
+    job_profile_id: Optional[int] = None
     status: str
     match_score: Optional[float] = None
     extracted_metadata: Optional[dict] = None
+    job_match_result: Optional[dict] = None
     error_message: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

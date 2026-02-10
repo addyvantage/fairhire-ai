@@ -17,8 +17,14 @@ from fastapi import HTTPException
 from app.core.config import get_settings
 from app.models.analysis import AnalysisRun
 from app.models.job_description import JobDescription
+from app.models.job_profile import JobProfile
 from app.models.resume import Resume
-from app.workers.job_handlers import run_analysis_job, run_resume_analysis_job
+from app.models.user import User
+from app.workers.job_handlers import (
+    run_analysis_job,
+    run_job_targeted_analysis_job,
+    run_resume_analysis_job,
+)
 from app.workers.queue import fetch_job, get_queue, get_redis_connection
 
 logger = logging.getLogger(__name__)
@@ -91,6 +97,108 @@ async def enqueue_resume_analysis(
         logger.info(
             "Resume analysis job enqueued",
             extra={"analysis_id": analysis.id, "job_id": rq_job.id},
+        )
+    except RuntimeError as exc:
+        analysis.status = "failed"
+        analysis.error_message = f"Queue unavailable: {exc}"
+        await db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Analysis queue is currently unavailable. Please try again later.",
+        ) from exc
+
+    return analysis
+
+
+# ---------------------------------------------------------------------------
+# Job-targeted analysis (Resume × JobProfile)
+# ---------------------------------------------------------------------------
+
+
+async def enqueue_job_targeted_analysis(
+    user_id: int,
+    resume_id: int,
+    job_profile_id: int,
+    db: AsyncSession,
+) -> AnalysisRun:
+    """Validate ownership, create a queued AnalysisRun with job_profile_id, and enqueue."""
+    # Validate resume ownership
+    resume_result = await db.execute(
+        select(Resume).where(Resume.id == resume_id, Resume.user_id == user_id)
+    )
+    if resume_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    # Validate job profile access (user-owned or template)
+    profile_result = await db.execute(
+        select(JobProfile).where(
+            JobProfile.id == job_profile_id,
+            (JobProfile.user_id == user_id) | (JobProfile.is_template.is_(True)),
+        )
+    )
+    if profile_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Job profile not found")
+
+    # Check for in-flight targeted analysis with same resume + profile
+    existing = await db.execute(
+        select(AnalysisRun).where(
+            AnalysisRun.resume_id == resume_id,
+            AnalysisRun.user_id == user_id,
+            AnalysisRun.job_profile_id == job_profile_id,
+            AnalysisRun.status.in_(["queued", "processing"]),
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A targeted analysis is already in progress for this resume and profile",
+        )
+
+    # Create queued AnalysisRun
+    analysis = AnalysisRun(
+        user_id=user_id,
+        resume_id=resume_id,
+        job_profile_id=job_profile_id,
+        status="queued",
+    )
+    db.add(analysis)
+    await db.commit()
+    await db.refresh(analysis)
+
+    # Update user's last-used profile
+    user_result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user_obj = user_result.scalar_one_or_none()
+    if user_obj is not None:
+        user_obj.last_job_profile_id = job_profile_id
+        await db.commit()
+
+    # Enqueue RQ job
+    settings = get_settings()
+    try:
+        conn = get_redis_connection()
+        queue = get_queue(connection=conn)
+        rq_job = queue.enqueue(
+            run_job_targeted_analysis_job,
+            analysis.id,
+            job_id=f"targeted-analysis-{analysis.id}",
+            retry=Retry(
+                max=settings.async_job_retry_max,
+                interval=settings.async_job_retry_interval,
+            ),
+            job_timeout="10m",
+        )
+        analysis.job_id = rq_job.id
+        await db.commit()
+        await db.refresh(analysis)
+        logger.info(
+            "Job-targeted analysis enqueued",
+            extra={
+                "analysis_id": analysis.id,
+                "job_id": rq_job.id,
+                "job_profile_id": job_profile_id,
+            },
         )
     except RuntimeError as exc:
         analysis.status = "failed"

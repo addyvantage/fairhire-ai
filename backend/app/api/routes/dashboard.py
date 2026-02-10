@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from app.api.deps import get_current_user
 from app.db.session import get_db_session
 from app.models.analysis import AnalysisRun
+from app.models.job_profile import JobProfile
 from app.models.resume import Resume
 from app.models.user import User
 from app.schemas.dashboard import DashboardStatsOut
@@ -48,10 +49,19 @@ async def get_dashboard_stats(
         else 0.0
     )
 
+    job_profile_count = await db.scalar(
+        select(func.count())
+        .select_from(JobProfile)
+        .where(
+            (JobProfile.user_id == user.id) | (JobProfile.is_template.is_(True))
+        )
+    ) or 0
+
     return DashboardStatsOut(
         total_resumes=resume_count,
         total_analyses=total_analyses,
         completed_analyses=completed_analyses,
         avg_match_score=round(avg_score_result or 0, 1),
         completion_rate=completion_rate,
+        total_job_profiles=job_profile_count,
     )
