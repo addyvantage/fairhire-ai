@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
@@ -72,22 +72,18 @@ export default function DashboardPage() {
       .finally(() => setLoaded(true))
   }, [token])
 
+  const snapshotSafe = stats ?? EMPTY_STATS
+  const hasData = snapshotSafe.total_resumes > 0 || snapshotSafe.total_analyses > 0
+  const activity = [
+    `${snapshotSafe.total_resumes} resume${snapshotSafe.total_resumes === 1 ? "" : "s"} uploaded`,
+    `${snapshotSafe.total_job_profiles} job profile${snapshotSafe.total_job_profiles === 1 ? "" : "s"} configured`,
+    `${snapshotSafe.completed_analyses} completed analys${snapshotSafe.completed_analyses === 1 ? "is" : "es"}`,
+    ...(snapshotSafe.avg_match_score > 0
+      ? [`Average candidate fit is ${snapshotSafe.avg_match_score}%`]
+      : []),
+  ]
+
   if (isLoading || !isAuthenticated) return <DashboardSkeleton />
-
-  const snapshot = stats ?? EMPTY_STATS
-  const hasData = snapshot.total_resumes > 0 || snapshot.total_analyses > 0
-
-  const activity = useMemo(() => {
-    const rows = [
-      `${snapshot.total_resumes} resume${snapshot.total_resumes === 1 ? "" : "s"} uploaded`,
-      `${snapshot.total_job_profiles} job profile${snapshot.total_job_profiles === 1 ? "" : "s"} configured`,
-      `${snapshot.completed_analyses} completed analys${snapshot.completed_analyses === 1 ? "is" : "es"}`,
-    ]
-    if (snapshot.avg_match_score > 0) {
-      rows.push(`Average candidate fit is ${snapshot.avg_match_score}%`)
-    }
-    return rows
-  }, [snapshot])
 
   return (
     <DashboardLayout
@@ -112,7 +108,7 @@ export default function DashboardPage() {
           <motion.div variants={fadeUp()}>
             <KpiCard
               label="Total Resumes"
-              value={snapshot.total_resumes}
+              value={snapshotSafe.total_resumes}
               helper="Candidates imported"
               icon={FileText}
             />
@@ -120,15 +116,15 @@ export default function DashboardPage() {
           <motion.div variants={fadeUp()}>
             <KpiCard
               label="Total Analyses"
-              value={snapshot.total_analyses}
-              helper={`${snapshot.completed_analyses} complete`}
+              value={snapshotSafe.total_analyses}
+              helper={`${snapshotSafe.completed_analyses} complete`}
               icon={BarChart3}
             />
           </motion.div>
           <motion.div variants={fadeUp()}>
             <KpiCard
               label="Job Profiles"
-              value={snapshot.total_job_profiles}
+              value={snapshotSafe.total_job_profiles}
               helper="Template + custom roles"
               icon={Briefcase}
             />
@@ -136,7 +132,7 @@ export default function DashboardPage() {
           <motion.div variants={fadeUp()}>
             <KpiCard
               label="Avg Match Score"
-              value={snapshot.avg_match_score > 0 ? `${snapshot.avg_match_score}%` : "—"}
+              value={snapshotSafe.avg_match_score > 0 ? `${snapshotSafe.avg_match_score}%` : "—"}
               helper="Across completed analyses"
               icon={Target}
             />
@@ -144,7 +140,7 @@ export default function DashboardPage() {
           <motion.div variants={fadeUp()}>
             <KpiCard
               label="Completion Rate"
-              value={snapshot.completion_rate > 0 ? `${snapshot.completion_rate}%` : "—"}
+              value={snapshotSafe.completion_rate > 0 ? `${snapshotSafe.completion_rate}%` : "—"}
               helper="Queue to completed"
               icon={TrendingUp}
               tone="positive"
