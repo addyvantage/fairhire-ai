@@ -15,8 +15,40 @@ export type Resume = {
 
 export type DashboardStats = {
   total_resumes: number;
-  analyses_run: number;
+  total_analyses: number;
+  completed_analyses: number;
   avg_match_score: number;
+  completion_rate: number;
+};
+
+export type AnalysisQueued = {
+  analysis_id: number;
+  status: string;
+  created_at: string;
+};
+
+export type AnalysisResult = {
+  id: number;
+  resume_id: number;
+  status: "queued" | "processing" | "completed" | "failed";
+  match_score: number | null;
+  extracted_metadata: {
+    skills: string[];
+    skill_count: number;
+    sections_detected: string[];
+    section_count: number;
+    experience_years: number;
+    contact_info: {
+      has_email: boolean;
+      has_phone: boolean;
+      has_linkedin: boolean;
+    };
+    word_count: number;
+  } | null;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
 };
 
 export async function register(email: string, password: string) {
@@ -112,6 +144,70 @@ export async function getDashboardStats(token: string): Promise<DashboardStats> 
 
   if (!response.ok) {
     throw new Error("Failed to fetch dashboard stats");
+  }
+
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Analysis API
+// ---------------------------------------------------------------------------
+
+export async function triggerAnalysis(
+  token: string,
+  resumeId: number
+): Promise<AnalysisQueued> {
+  const response = await fetch(`${API_BASE_URL}/analysis/run`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ resume_id: resumeId }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to trigger analysis");
+  }
+
+  return response.json();
+}
+
+export async function getAnalysis(
+  token: string,
+  analysisId: number
+): Promise<AnalysisResult> {
+  const response = await fetch(`${API_BASE_URL}/analysis/${analysisId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to fetch analysis");
+  }
+
+  return response.json();
+}
+
+export async function getAnalysisByResume(
+  token: string,
+  resumeId: number
+): Promise<AnalysisResult | null> {
+  const response = await fetch(`${API_BASE_URL}/analysis/by-resume/${resumeId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch analysis");
   }
 
   return response.json();

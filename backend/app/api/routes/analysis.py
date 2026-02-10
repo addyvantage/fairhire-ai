@@ -14,24 +14,76 @@ from app.schemas.analysis import (
     AnalysisResponse,
     AsyncAnalysisResponse,
     JobStatusResponse,
+    ResumeAnalysisOut,
+    ResumeAnalysisQueued,
+    ResumeAnalysisRequest,
 )
 from app.services.analysis_orchestrator import AnalysisOrchestrator
-from app.services.async_analysis import enqueue_analysis, get_job_status
+from app.services.async_analysis import (
+    enqueue_analysis,
+    enqueue_resume_analysis,
+    get_analysis_by_id,
+    get_job_status,
+    get_latest_analysis_for_resume,
+)
 
 router = APIRouter()
 
 
+def _analysis_to_out(analysis: AnalysisRun) -> ResumeAnalysisOut:
+    """Map AnalysisRun to ResumeAnalysisOut response schema."""
+    return ResumeAnalysisOut(
+        id=analysis.id,
+        resume_id=analysis.resume_id,
+        status=analysis.status,
+        match_score=analysis.overall_score,
+        extracted_metadata=analysis.result_payload,
+        error_message=analysis.error_message,
+        started_at=analysis.started_at,
+        completed_at=analysis.completed_at,
+        created_at=analysis.created_at,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Existing synchronous endpoint (backward compatible)
+# POST endpoints (no ordering concern with GET /{analysis_id})
 # ---------------------------------------------------------------------------
 
 
-@router.post("/run", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/run",
+    response_model=ResumeAnalysisQueued,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_resume_analysis(
+    payload: ResumeAnalysisRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ResumeAnalysisQueued:
+    """Trigger standalone resume analysis.
+
+    Creates an AnalysisRun (status=queued) and enqueues a worker job.
+    Returns the analysis_id for polling.
+    """
+    analysis = await enqueue_resume_analysis(
+        user_id=user.id,
+        resume_id=payload.resume_id,
+        db=db,
+    )
+    return ResumeAnalysisQueued(
+        analysis_id=analysis.id,
+        status=analysis.status,
+        created_at=analysis.created_at,
+    )
+
+
+@router.post("/sync", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED)
 async def run_analysis(
     payload: AnalysisRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AnalysisResponse:
+    """Synchronous JD-based analysis (legacy)."""
     resume_result = await db.execute(
         select(Resume).where(Resume.id == payload.resume_id, Resume.user_id == user.id)
     )
@@ -82,22 +134,13 @@ async def run_analysis(
     )
 
 
-# ---------------------------------------------------------------------------
-# Async endpoints (new)
-# ---------------------------------------------------------------------------
-
-
 @router.post("/async", response_model=AsyncAnalysisResponse, status_code=status.HTTP_202_ACCEPTED)
 async def submit_async_analysis(
     payload: AnalysisRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> AsyncAnalysisResponse:
-    """Submit an analysis for asynchronous background processing.
-
-    Returns HTTP 202 with the job tracking information.
-    Poll ``GET /analysis/jobs/{job_id}`` for status and results.
-    """
+    """Submit a JD-based analysis for asynchronous background processing."""
     analysis = await enqueue_analysis(
         user_id=user.id,
         resume_id=payload.resume_id,
@@ -112,16 +155,35 @@ async def submit_async_analysis(
     )
 
 
+# ---------------------------------------------------------------------------
+# GET endpoints — specific paths BEFORE parameterized catch-all
+# ---------------------------------------------------------------------------
+
+
+@router.get("/by-resume/{resume_id}", response_model=ResumeAnalysisOut)
+async def get_analysis_by_resume(
+    resume_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ResumeAnalysisOut:
+    """Get the latest standalone analysis for a resume."""
+    analysis = await get_latest_analysis_for_resume(
+        user_id=user.id,
+        resume_id=resume_id,
+        db=db,
+    )
+    if analysis is None:
+        raise HTTPException(status_code=404, detail="No analysis found for this resume")
+    return _analysis_to_out(analysis)
+
+
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
 async def poll_job_status(
     job_id: str,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> JobStatusResponse:
-    """Poll the status of an async analysis job.
-
-    Returns the current status, and the full result payload once completed.
-    """
+    """Poll the status of an async analysis job."""
     analysis = await get_job_status(
         user_id=user.id,
         job_id=job_id,
@@ -136,3 +198,20 @@ async def poll_job_status(
         error_message=analysis.error_message,
         created_at=analysis.created_at,
     )
+
+
+@router.get("/{analysis_id}", response_model=ResumeAnalysisOut)
+async def get_analysis(
+    analysis_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ResumeAnalysisOut:
+    """Get analysis by ID with full results."""
+    analysis = await get_analysis_by_id(
+        user_id=user.id,
+        analysis_id=analysis_id,
+        db=db,
+    )
+    if analysis is None:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return _analysis_to_out(analysis)

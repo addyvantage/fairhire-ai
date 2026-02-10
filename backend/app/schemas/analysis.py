@@ -10,6 +10,10 @@ class ExplainableMetric(BaseModel):
     contributing_factors: list[str]
 
 
+# ---------------------------------------------------------------------------
+# Legacy JD-based analysis (kept for backward compatibility)
+# ---------------------------------------------------------------------------
+
 class AnalysisRequest(BaseModel):
     resume_id: int
     job_description_id: int
@@ -46,6 +50,40 @@ class JobStatusResponse(BaseModel):
     overall_score: Optional[float] = None
     result_payload: Optional[dict] = None
     error_message: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Standalone resume analysis (new endpoints)
+# ---------------------------------------------------------------------------
+
+class ResumeAnalysisRequest(BaseModel):
+    resume_id: int
+
+
+class ResumeAnalysisQueued(BaseModel):
+    """Returned by POST /analysis/run for standalone resume analysis."""
+
+    analysis_id: int
+    status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ResumeAnalysisOut(BaseModel):
+    """Full analysis result for GET /analysis/{id} and GET /analysis/by-resume/{resume_id}."""
+
+    id: int
+    resume_id: int
+    status: str
+    match_score: Optional[float] = None
+    extracted_metadata: Optional[dict] = None
+    error_message: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

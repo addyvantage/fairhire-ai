@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { FileText, BarChart3, Target, TrendingUp, ArrowRight } from "lucide-react"
+import { FileText, BarChart3, Target, TrendingUp, ArrowRight, Play } from "lucide-react"
 import { motion } from "framer-motion"
 import { useAuth } from "@/lib/auth-context"
 import { getDashboardStats, type DashboardStats } from "@/lib/api"
@@ -20,8 +20,8 @@ function DashboardSkeleton() {
           <Skeleton className="h-7 w-32" />
           <Skeleton className="h-4 w-56" />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="rounded-xl border bg-background p-5 space-y-3">
               <Skeleton className="h-3 w-20" />
               <Skeleton className="h-7 w-16" />
@@ -31,6 +31,14 @@ function DashboardSkeleton() {
       </div>
     </DashboardLayout>
   )
+}
+
+const EMPTY_STATS: DashboardStats = {
+  total_resumes: 0,
+  total_analyses: 0,
+  completed_analyses: 0,
+  avg_match_score: 0,
+  completion_rate: 0,
 }
 
 const stagger = {
@@ -63,7 +71,7 @@ export default function DashboardPage() {
         setLoaded(true)
       })
       .catch(() => {
-        setStats({ total_resumes: 0, analyses_run: 0, avg_match_score: 0 })
+        setStats(EMPTY_STATS)
         setLoaded(true)
       })
   }, [token])
@@ -72,8 +80,9 @@ export default function DashboardPage() {
     return <DashboardSkeleton />
   }
 
-  const s = stats ?? { total_resumes: 0, analyses_run: 0, avg_match_score: 0 }
-  const isEmpty = s.total_resumes === 0 && s.analyses_run === 0
+  const s = stats ?? EMPTY_STATS
+  const isEmpty = s.total_resumes === 0 && s.completed_analyses === 0
+  const hasResumesButNoAnalyses = s.total_resumes > 0 && s.completed_analyses === 0
 
   return (
     <DashboardLayout sidebar={<Sidebar />}>
@@ -96,7 +105,7 @@ export default function DashboardPage() {
           variants={stagger}
           initial="hidden"
           animate={loaded ? "show" : "hidden"}
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
         >
           <motion.div variants={fadeUp}>
             <SummaryCard
@@ -115,19 +124,28 @@ export default function DashboardPage() {
           <motion.div variants={fadeUp}>
             <SummaryCard
               title="Analyses"
-              subtitle="Processing metrics"
+              subtitle="Completed"
               stats={[
                 {
                   icon: BarChart3,
                   label: "completed",
-                  value: s.analyses_run,
+                  value: s.completed_analyses,
                 },
+              ]}
+            />
+          </motion.div>
+
+          <motion.div variants={fadeUp}>
+            <SummaryCard
+              title="Completion"
+              subtitle="Analysis rate"
+              stats={[
                 {
                   icon: TrendingUp,
-                  label: "Completion rate",
+                  label: "rate",
                   value:
-                    s.total_resumes > 0
-                      ? `${Math.round((s.analyses_run / s.total_resumes) * 100)}%`
+                    s.completion_rate > 0
+                      ? `${s.completion_rate}%`
                       : "—",
                 },
               ]}
@@ -137,7 +155,7 @@ export default function DashboardPage() {
           <motion.div variants={fadeUp}>
             <SummaryCard
               title="Match Quality"
-              subtitle="Candidate scoring"
+              subtitle="Average score"
               stats={[
                 {
                   icon: Target,
@@ -173,6 +191,32 @@ export default function DashboardPage() {
               className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-foreground/70 transition-colors"
             >
               Upload resumes
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </motion.div>
+        )}
+
+        {loaded && hasResumesButNoAnalyses && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.25 }}
+            className="rounded-xl border border-dashed bg-muted/20 px-6 py-12 text-center"
+          >
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted/60">
+              <Play className="h-5 w-5 text-muted-foreground/60" />
+            </div>
+            <p className="text-sm font-medium text-foreground/80">
+              Analyze your first resume
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              You have {s.total_resumes} resume{s.total_resumes !== 1 ? "s" : ""} uploaded. Run an analysis to see insights.
+            </p>
+            <Link
+              href="/dashboard/resumes"
+              className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-foreground/70 transition-colors"
+            >
+              Go to resumes
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </motion.div>

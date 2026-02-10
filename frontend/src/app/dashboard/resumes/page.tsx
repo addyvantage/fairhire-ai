@@ -1,17 +1,25 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ColumnDef } from "@tanstack/react-table"
-import { FileText, Loader2 } from "lucide-react"
+import { FileText, Loader2, Play, Eye, AlertCircle } from "lucide-react"
 import { motion } from "framer-motion"
 import { useAuth } from "@/lib/auth-context"
-import { listResumes, uploadResume, type Resume } from "@/lib/api"
+import {
+  listResumes,
+  uploadResume,
+  triggerAnalysis,
+  getAnalysisByResume,
+  type Resume,
+  type AnalysisResult,
+} from "@/lib/api"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Sidebar } from "@/components/layout/sidebar"
 import { FileUpload } from "@/components/ui/file-upload"
 import { VirtualizedTable } from "@/components/ui/virtualized-table"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 
 function ResumesSkeleton() {
@@ -27,11 +35,13 @@ function ResumesSkeleton() {
           <div className="border-b bg-muted/30 px-4 py-2.5 flex gap-16">
             <Skeleton className="h-3 w-12" />
             <Skeleton className="h-3 w-12" />
+            <Skeleton className="h-3 w-12" />
           </div>
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="border-b last:border-0 px-4 py-3 flex gap-16">
               <Skeleton className="h-4 w-48" />
               <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-4 w-20" />
             </div>
           ))}
         </div>
@@ -50,11 +60,17 @@ function formatDate(dateStr: string): string {
   })
 }
 
+type ResumeWithAnalysis = Resume & {
+  analysis?: AnalysisResult | null
+}
+
 export default function ResumesPage() {
   const { token, isAuthenticated, isLoading } = useAuth()
-  const [resumes, setResumes] = useState<Resume[]>([])
+  const [resumes, setResumes] = useState<ResumeWithAnalysis[]>([])
   const [uploading, setUploading] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [analyzingIds, setAnalyzingIds] = useState<Set<number>>(new Set())
+  const pollingRef = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map())
   const router = useRouter()
   const { toast } = useToast()
 
@@ -64,22 +80,136 @@ export default function ResumesPage() {
     }
   }, [isLoading, isAuthenticated, router])
 
-  const fetchResumes = useCallback(() => {
-    if (!token) return
-    listResumes(token)
-      .then((data) => {
-        setResumes(data)
-        setLoaded(true)
-      })
-      .catch(() => {
-        setResumes([])
-        setLoaded(true)
-      })
+  // Store token in a ref so polling callbacks always have the latest
+  const tokenRef = useRef(token)
+  useEffect(() => {
+    tokenRef.current = token
   }, [token])
+
+  const startPolling = useCallback((resumeId: number) => {
+    if (pollingRef.current.has(resumeId)) return
+
+    setAnalyzingIds((prev) => new Set(prev).add(resumeId))
+
+    const interval = setInterval(async () => {
+      const t = tokenRef.current
+      if (!t) return
+      try {
+        const analysis = await getAnalysisByResume(t, resumeId)
+        if (!analysis) return
+
+        setResumes((prev) =>
+          prev.map((r) => (r.id === resumeId ? { ...r, analysis } : r))
+        )
+
+        if (analysis.status === "completed" || analysis.status === "failed") {
+          clearInterval(interval)
+          pollingRef.current.delete(resumeId)
+          setAnalyzingIds((prev) => {
+            const next = new Set(prev)
+            next.delete(resumeId)
+            return next
+          })
+
+          if (analysis.status === "completed") {
+            toast({
+              title: "Analysis complete",
+              description: `Score: ${analysis.match_score}%`,
+            })
+          } else {
+            toast({
+              title: "Analysis failed",
+              description: analysis.error_message || "An error occurred",
+              variant: "destructive",
+            })
+          }
+        }
+      } catch {
+        // Silently retry on network errors
+      }
+    }, 3000)
+
+    pollingRef.current.set(resumeId, interval)
+  }, [toast])
+
+  const fetchResumes = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await listResumes(token)
+
+      const withAnalysis = await Promise.all(
+        data.map(async (resume) => {
+          try {
+            const analysis = await getAnalysisByResume(token, resume.id)
+            return { ...resume, analysis }
+          } catch {
+            return { ...resume, analysis: null }
+          }
+        })
+      )
+
+      setResumes(withAnalysis)
+      setLoaded(true)
+
+      for (const r of withAnalysis) {
+        if (
+          r.analysis &&
+          (r.analysis.status === "queued" || r.analysis.status === "processing")
+        ) {
+          startPolling(r.id)
+        }
+      }
+    } catch {
+      setResumes([])
+      setLoaded(true)
+    }
+  }, [token, startPolling])
 
   useEffect(() => {
     fetchResumes()
+    return () => {
+      pollingRef.current.forEach((interval) => clearInterval(interval))
+      pollingRef.current.clear()
+    }
   }, [fetchResumes])
+
+  const handleAnalyze = useCallback(async (resumeId: number) => {
+    const t = tokenRef.current
+    if (!t) return
+    try {
+      await triggerAnalysis(t, resumeId)
+      toast({ title: "Analysis started", description: "Processing your resume..." })
+
+      setResumes((prev) =>
+        prev.map((r) =>
+          r.id === resumeId
+            ? {
+                ...r,
+                analysis: {
+                  id: 0,
+                  resume_id: resumeId,
+                  status: "queued" as const,
+                  match_score: null,
+                  extracted_metadata: null,
+                  error_message: null,
+                  started_at: null,
+                  completed_at: null,
+                  created_at: new Date().toISOString(),
+                },
+              }
+            : r
+        )
+      )
+
+      startPolling(resumeId)
+    } catch (err) {
+      toast({
+        title: "Failed to start analysis",
+        description: (err as Error).message,
+        variant: "destructive",
+      })
+    }
+  }, [toast, startPolling])
 
   async function handleFileSelect(file: File) {
     if (!token) return
@@ -99,7 +229,7 @@ export default function ResumesPage() {
     }
   }
 
-  const columns: ColumnDef<Resume, any>[] = useMemo(
+  const columns: ColumnDef<ResumeWithAnalysis, unknown>[] = useMemo(
     () => [
       {
         accessorKey: "original_filename",
@@ -124,8 +254,102 @@ export default function ResumesPage() {
           </span>
         ),
       },
+      {
+        id: "score",
+        header: "Score",
+        cell: ({ row }) => {
+          const analysis = row.original.analysis
+          if (!analysis || analysis.status !== "completed" || analysis.match_score == null) {
+            return <span className="text-muted-foreground text-xs">—</span>
+          }
+          return (
+            <span className="font-medium tabular-nums text-foreground">
+              {analysis.match_score}%
+            </span>
+          )
+        },
+      },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => {
+          const resume = row.original
+          const analysis = resume.analysis
+          const isAnalyzing = analyzingIds.has(resume.id)
+
+          if (isAnalyzing || (analysis && (analysis.status === "queued" || analysis.status === "processing"))) {
+            return (
+              <div className="flex justify-end">
+                <Button size="sm" variant="outline" disabled className="gap-1.5 text-xs">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Processing...
+                </Button>
+              </div>
+            )
+          }
+
+          if (analysis?.status === "completed") {
+            return (
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    router.push(`/dashboard/resumes/${resume.id}/analysis`)
+                  }}
+                >
+                  <Eye className="h-3 w-3" />
+                  View Analysis
+                </Button>
+              </div>
+            )
+          }
+
+          if (analysis?.status === "failed") {
+            return (
+              <div className="flex justify-end items-center gap-2">
+                <span className="text-xs text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  Failed
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-xs"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleAnalyze(resume.id)
+                  }}
+                >
+                  <Play className="h-3 w-3" />
+                  Retry
+                </Button>
+              </div>
+            )
+          }
+
+          return (
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="default"
+                className="gap-1.5 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleAnalyze(resume.id)
+                }}
+              >
+                <Play className="h-3 w-3" />
+                Analyze
+              </Button>
+            </div>
+          )
+        },
+      },
     ],
-    []
+    [analyzingIds, router, handleAnalyze]
   )
 
   if (isLoading || !isAuthenticated) {

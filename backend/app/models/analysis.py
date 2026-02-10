@@ -13,14 +13,20 @@ class AnalysisRun(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     resume_id: Mapped[int] = mapped_column(ForeignKey("resumes.id", ondelete="CASCADE"), nullable=False)
-    job_description_id: Mapped[int] = mapped_column(
-        ForeignKey("job_descriptions.id", ondelete="CASCADE"), nullable=False
+    job_description_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("job_descriptions.id", ondelete="CASCADE"), nullable=True
     )
     overall_score: Mapped[Optional[float]] = mapped_column(nullable=True)
     result_payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
     job_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

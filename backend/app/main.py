@@ -4,6 +4,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -16,6 +17,27 @@ from app.queue.connection import RedisManager
 logger = logging.getLogger(__name__)
 
 
+_SCHEMA_MIGRATIONS = [
+    # Make job_description_id nullable (idempotent via DO $$ block)
+    """
+    DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'analysis_runs'
+            AND column_name = 'job_description_id'
+            AND is_nullable = 'NO'
+        ) THEN
+            ALTER TABLE analysis_runs ALTER COLUMN job_description_id DROP NOT NULL;
+        END IF;
+    END $$;
+    """,
+    # Add new timestamp columns
+    "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
+    "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
+]
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     # --- Logging (must be first) ---
@@ -26,6 +48,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+            # Apply incremental schema migrations (idempotent)
+            for migration_sql in _SCHEMA_MIGRATIONS:
+                await connection.execute(text(migration_sql))
         logger.info("Database tables verified")
     except Exception:
         logger.warning("Database unavailable at startup — skipping table creation")
