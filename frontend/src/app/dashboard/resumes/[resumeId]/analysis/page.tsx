@@ -133,6 +133,50 @@ export default function AnalysisPage() {
     }
   }, [resumeId, token])
 
+  const jobMatchResult = analysis?.job_match_result ?? null
+
+  const inProgress = analysis?.status === "queued" || analysis?.status === "processing"
+  const failed = analysis?.status === "failed"
+  const targeted = analysis?.status === "completed" && Boolean(jobMatchResult)
+  const profileTitle = jobProfile?.title ?? "Target role"
+  const profileSeniority = jobProfile?.seniority_level
+    ? ` (${jobProfile.seniority_level.replace("-", " ")})`
+    : ""
+
+  const scoreRows = targeted
+    ? [
+        { label: "Skills Match", score: jobMatchResult!.skill_match_score, weight: "40%", tone: "primary" as const },
+        { label: "Experience Match", score: jobMatchResult!.experience_match_score, weight: "25%", tone: "success" as const },
+        { label: "Role Alignment", score: jobMatchResult!.role_alignment_score, weight: "15%", tone: "warning" as const },
+        { label: "Seniority Fit", score: jobMatchResult!.seniority_fit_score, weight: "10%", tone: "neutral" as const },
+        { label: "Resume Quality", score: jobMatchResult!.quality_score, weight: "10%", tone: "primary" as const },
+      ]
+    : []
+
+  const skillColumns = useMemo(() => {
+    if (!jobMatchResult) return null
+    return [
+      {
+        label: "Matched skills",
+        tone: "bg-emerald-50 text-emerald-700",
+        items: [
+          ...jobMatchResult.details.matched_required,
+          ...jobMatchResult.details.matched_optional,
+        ],
+      },
+      {
+        label: "Missing skills",
+        tone: "bg-rose-50 text-rose-700",
+        items: jobMatchResult.details.missing_required,
+      },
+      {
+        label: "Additional skills",
+        tone: "bg-slate-100 text-slate-700",
+        items: jobMatchResult.details.extra_resume_skills,
+      },
+    ]
+  }, [jobMatchResult])
+
   if (authLoading || !isAuthenticated || loading) return <AnalysisSkeleton />
 
   if (!analysis || error) {
@@ -153,48 +197,6 @@ export default function AnalysisPage() {
       </DashboardLayout>
     )
   }
-
-  const inProgress = analysis.status === "queued" || analysis.status === "processing"
-  const failed = analysis.status === "failed"
-  const targeted = analysis.status === "completed" && analysis.job_match_result
-  const profileTitle = jobProfile?.title ?? "Target role"
-  const profileSeniority = jobProfile?.seniority_level
-    ? ` (${jobProfile.seniority_level.replace("-", " ")})`
-    : ""
-
-  const scoreRows = targeted
-    ? [
-        { label: "Skills Match", score: analysis.job_match_result!.skill_match_score, weight: "40%", tone: "primary" as const },
-        { label: "Experience Match", score: analysis.job_match_result!.experience_match_score, weight: "25%", tone: "success" as const },
-        { label: "Role Alignment", score: analysis.job_match_result!.role_alignment_score, weight: "15%", tone: "warning" as const },
-        { label: "Seniority Fit", score: analysis.job_match_result!.seniority_fit_score, weight: "10%", tone: "neutral" as const },
-        { label: "Resume Quality", score: analysis.job_match_result!.quality_score, weight: "10%", tone: "primary" as const },
-      ]
-    : []
-
-  const skillColumns = useMemo(() => {
-    if (!analysis.job_match_result) return null
-    return [
-      {
-        label: "Matched skills",
-        tone: "bg-emerald-50 text-emerald-700",
-        items: [
-          ...analysis.job_match_result.details.matched_required,
-          ...analysis.job_match_result.details.matched_optional,
-        ],
-      },
-      {
-        label: "Missing skills",
-        tone: "bg-rose-50 text-rose-700",
-        items: analysis.job_match_result.details.missing_required,
-      },
-      {
-        label: "Additional skills",
-        tone: "bg-slate-100 text-slate-700",
-        items: analysis.job_match_result.details.extra_resume_skills,
-      },
-    ]
-  }, [analysis.job_match_result])
 
   async function copyShareLink() {
     try {
