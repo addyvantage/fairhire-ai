@@ -1,4 +1,5 @@
 services:
+  # ── Data stores ───────────────────────────────────────────────────
   db:
     image: postgres:16-alpine
     container_name: fairhire_db
@@ -30,12 +31,14 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Application ───────────────────────────────────────────────────
   backend:
     build:
       context: ./backend
     container_name: fairhire_backend
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://fairhire:fairhire@db:5432/fairhire
       REDIS_URL: redis://redis:6379/0
@@ -59,7 +62,8 @@ services:
     container_name: fairhire_worker
     restart: unless-stopped
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://fairhire:fairhire@db:5432/fairhire
       REDIS_URL: redis://redis:6379/0
@@ -75,14 +79,20 @@ services:
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile
     container_name: fairhire_frontend
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
     ports:
       - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
     depends_on:
       - backend
 
+  # ── Observability ─────────────────────────────────────────────────
   prometheus:
     image: prom/prometheus:v2.51.0
     container_name: fairhire_prometheus
