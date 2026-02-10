@@ -9,10 +9,10 @@ export function DashboardLayout({
 }) {
   return (
     <div className="flex min-h-screen bg-muted/30">
-      <aside className="w-64 border-r bg-background">
+      <aside className="w-60 border-r bg-background">
         {sidebar}
       </aside>
-      <main className="flex-1 p-8">{children}</main>
+      <main className="flex-1 px-10 py-8">{children}</main>
     </div>
   )
 }

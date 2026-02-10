@@ -15,9 +15,10 @@ interface SummaryCardProps {
 
 export function SummaryCard({ title, subtitle, stats }: SummaryCardProps) {
   return (
-    <Card className="border-border bg-background">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+    <Card className="relative overflow-hidden border-border bg-background">
+      <div className="absolute left-0 top-0 h-full w-0.5 bg-primary/60" />
+      <CardHeader className="pb-3">
+        <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {title}
         </CardTitle>
         {subtitle && (
