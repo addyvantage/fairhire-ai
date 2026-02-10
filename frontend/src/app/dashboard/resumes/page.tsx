@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import { ColumnDef } from "@tanstack/react-table"
 import { FileText } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
@@ -9,6 +10,8 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Sidebar } from "@/components/layout/sidebar"
 import { FileUpload } from "@/components/ui/file-upload"
 import { VirtualizedTable } from "@/components/ui/virtualized-table"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useToast } from "@/components/ui/use-toast"
 
 const statusStyles: Record<Resume["status"], string> = {
   pending: "bg-secondary text-secondary-foreground",
@@ -17,18 +20,58 @@ const statusStyles: Record<Resume["status"], string> = {
   failed: "bg-destructive/10 text-destructive",
 }
 
+function ResumesSkeleton() {
+  return (
+    <DashboardLayout sidebar={<Sidebar />}>
+      <div className="mx-auto max-w-6xl space-y-8">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-28" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <div className="rounded-lg border border-dashed bg-background p-8 space-y-3">
+          <Skeleton className="mx-auto h-10 w-10 rounded-full" />
+          <Skeleton className="mx-auto h-4 w-48" />
+          <Skeleton className="mx-auto h-9 w-24" />
+        </div>
+        <div className="rounded-md border bg-background">
+          <div className="border-b px-4 py-3 flex gap-16">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-4 w-14" />
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-4 w-18" />
+          </div>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="border-b last:border-0 px-4 py-3 flex gap-16">
+              <Skeleton className="h-4 w-36" />
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-4 w-12" />
+              <Skeleton className="h-4 w-24" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </DashboardLayout>
+  )
+}
+
 export default function ResumesPage() {
   const { token, isAuthenticated, isLoading } = useAuth()
   const [resumes, setResumes] = useState<Resume[]>([])
   const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState("")
+  const router = useRouter()
+  const { toast } = useToast()
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.replace("/login")
+    }
+  }, [isLoading, isAuthenticated, router])
 
   const fetchResumes = useCallback(() => {
     if (!token) return
     listResumes(token)
       .then(setResumes)
       .catch(() => {
-        // API may not be wired yet — show empty state
         setResumes([])
       })
   }, [token])
@@ -39,13 +82,17 @@ export default function ResumesPage() {
 
   async function handleFileSelect(file: File) {
     if (!token) return
-    setUploadError("")
     setUploading(true)
     try {
       await uploadResume(token, file)
+      toast({ title: "Resume uploaded", description: file.name })
       fetchResumes()
     } catch (err) {
-      setUploadError((err as Error).message)
+      toast({
+        title: "Upload failed",
+        description: (err as Error).message,
+        variant: "destructive",
+      })
     } finally {
       setUploading(false)
     }
@@ -58,8 +105,8 @@ export default function ResumesPage() {
         header: "File",
         cell: ({ row }) => (
           <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-muted-foreground" />
-            <span className="font-medium">{row.original.filename}</span>
+            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="font-medium truncate">{row.original.filename}</span>
           </div>
         ),
       },
@@ -78,40 +125,34 @@ export default function ResumesPage() {
         accessorKey: "match_score",
         header: "Match Score",
         cell: ({ row }) =>
-          row.original.match_score != null
-            ? `${row.original.match_score}%`
-            : "—",
+          row.original.match_score != null ? (
+            <span className="tabular-nums">{row.original.match_score}%</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
       },
       {
         accessorKey: "uploaded_at",
         header: "Uploaded",
         cell: ({ row }) => {
           const date = new Date(row.original.uploaded_at)
-          return date.toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })
+          return (
+            <span className="text-muted-foreground">
+              {date.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </span>
+          )
         },
       },
     ],
     []
   )
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-muted/30">
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-muted/30">
-        <p className="text-sm text-muted-foreground">Redirecting...</p>
-      </div>
-    )
+  if (isLoading || !isAuthenticated) {
+    return <ResumesSkeleton />
   }
 
   return (
@@ -126,24 +167,22 @@ export default function ResumesPage() {
           </p>
         </div>
 
-        <div className="space-y-2">
-          <FileUpload
-            onFileSelect={handleFileSelect}
-            accept=".pdf,.doc,.docx"
-          />
-          {uploading && (
-            <p className="text-sm text-muted-foreground">Uploading...</p>
-          )}
-          {uploadError && (
-            <p className="text-sm text-destructive">{uploadError}</p>
-          )}
-        </div>
+        <FileUpload
+          onFileSelect={handleFileSelect}
+          accept=".pdf,.doc,.docx"
+        />
+        {uploading && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="h-3 w-3 animate-pulse rounded-full bg-primary/40" />
+            Uploading...
+          </div>
+        )}
 
         {resumes.length > 0 ? (
           <VirtualizedTable columns={columns} data={resumes} />
         ) : (
           <div className="rounded-md border border-dashed bg-background py-16 text-center">
-            <FileText className="mx-auto h-10 w-10 text-muted-foreground/50" />
+            <FileText className="mx-auto h-10 w-10 text-muted-foreground/40" />
             <p className="mt-4 text-sm font-medium text-foreground">
               No resumes yet
             </p>

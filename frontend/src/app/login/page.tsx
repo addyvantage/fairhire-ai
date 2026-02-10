@@ -7,9 +7,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { useToast } from "@/components/ui/use-toast"
 
 export default function LoginPage() {
   const { login } = useAuth()
+  const { toast } = useToast()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -22,7 +24,9 @@ export default function LoginPage() {
     try {
       await login(email, password)
     } catch (err) {
-      setError((err as Error).message)
+      const msg = (err as Error).message
+      setError(msg)
+      toast({ title: "Sign in failed", description: msg, variant: "destructive" })
     } finally {
       setLoading(false)
     }
@@ -32,16 +36,17 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">
             FairHire
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Resume Intelligence
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
+        <Card className="overflow-hidden">
+          <div className="h-0.5 bg-primary/60" />
+          <CardHeader className="pb-4">
             <CardTitle className="text-lg">Sign in</CardTitle>
             <CardDescription>
               Enter your credentials to access your account
@@ -58,6 +63,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoComplete="email"
                 />
               </div>
               <div className="space-y-2">
@@ -69,6 +75,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
                 />
               </div>
 

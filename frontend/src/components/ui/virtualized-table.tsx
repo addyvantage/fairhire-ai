@@ -31,7 +31,7 @@ export function VirtualizedTable<TData>({
               {headerGroup.headers.map((header) => (
                 <th
                   key={header.id}
-                  className="px-4 py-3 text-left font-medium text-muted-foreground"
+                  className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground"
                 >
                   {flexRender(
                     header.column.columnDef.header,

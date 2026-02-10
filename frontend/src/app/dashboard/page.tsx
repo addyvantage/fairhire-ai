@@ -1,17 +1,47 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { FileText, BarChart3, Target, TrendingUp } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { getDashboardStats, type DashboardStats } from "@/lib/api"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Sidebar } from "@/components/layout/sidebar"
 import { SummaryCard } from "@/components/ui/summary-card"
+import { Skeleton } from "@/components/ui/skeleton"
+
+function DashboardSkeleton() {
+  return (
+    <DashboardLayout sidebar={<Sidebar />}>
+      <div className="mx-auto max-w-6xl space-y-8">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-32" />
+          <Skeleton className="h-4 w-56" />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-lg border bg-background p-6 space-y-4">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </DashboardLayout>
+  )
+}
 
 export default function DashboardPage() {
   const { token, isAuthenticated, isLoading } = useAuth()
   const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [error, setError] = useState("")
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.replace("/login")
+    }
+  }, [isLoading, isAuthenticated, router])
 
   useEffect(() => {
     if (!token) return
@@ -19,25 +49,12 @@ export default function DashboardPage() {
     getDashboardStats(token)
       .then(setStats)
       .catch(() => {
-        // Fallback to zeros if the endpoint isn't available yet
         setStats({ total_resumes: 0, analyses_run: 0, avg_match_score: 0 })
       })
   }, [token])
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-muted/30">
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-muted/30">
-        <p className="text-sm text-muted-foreground">Redirecting...</p>
-      </div>
-    )
+  if (isLoading || !isAuthenticated) {
+    return <DashboardSkeleton />
   }
 
   const displayStats = stats ?? { total_resumes: 0, analyses_run: 0, avg_match_score: 0 }

@@ -21,6 +21,29 @@
   --color-input: hsl(240 5.9% 90%);
   --color-ring: hsl(240 5.9% 10%);
   --radius: 0.5rem;
+
+  --animate-in: enter 200ms ease-out;
+  --animate-fade-in: fade-in 200ms ease-out;
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
 }
 
 @layer base {
