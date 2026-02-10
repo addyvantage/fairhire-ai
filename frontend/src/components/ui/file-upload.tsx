@@ -14,7 +14,10 @@ export function FileUpload({ onFileSelect, accept }: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   return (
-    <Card className="border-dashed border-2 p-8 text-center bg-background transition-colors hover:bg-muted/30 cursor-pointer">
+    <Card
+      onClick={() => inputRef.current?.click()}
+      className="border-dashed border-2 p-8 text-center bg-background transition-colors hover:bg-muted/30 cursor-pointer"
+    >
       <UploadCloud className="mx-auto h-10 w-10 text-muted-foreground" />
       <p className="mt-4 text-sm text-muted-foreground">
         Drag & drop your resume here, or click to upload
@@ -22,7 +25,10 @@ export function FileUpload({ onFileSelect, accept }: FileUploadProps) {
       <Button
         variant="outline"
         className="mt-4"
-        onClick={() => inputRef.current?.click()}
+        onClick={(e) => {
+          e.stopPropagation()
+          inputRef.current?.click()
+        }}
       >
         Select File
       </Button>

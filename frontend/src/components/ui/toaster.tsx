@@ -10,13 +10,13 @@ export function Toaster() {
   if (toasts.length === 0) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-80">
+    <div aria-live="polite" className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-80">
       {toasts.map((toast) => (
         <div
           key={toast.id}
           className={cn(
             "rounded-lg border bg-background px-4 py-3 shadow-lg animate-in",
-            toast.variant === "destructive" && "border-destructive/30 bg-destructive/5"
+            toast.variant === "destructive" && "border-destructive/20 bg-destructive/5"
           )}
         >
           <div className="flex items-start justify-between gap-2">
