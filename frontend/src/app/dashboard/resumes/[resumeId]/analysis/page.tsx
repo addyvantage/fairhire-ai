@@ -7,16 +7,19 @@ import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
+  CircleDashed,
   ChevronDown,
   ChevronUp,
   Clipboard,
   FileText,
+  Lightbulb,
   Link2,
   Sparkles,
+  WandSparkles,
 } from "lucide-react"
 import { motion } from "framer-motion"
 import { useAuth } from "@/lib/auth-context"
-import { AnalysisResult, getAnalysisByResume, getJobProfile, JobProfile } from "@/lib/api"
+import { AnalysisResult, getAnalysisByResume, getAnalysisHistoryByResume, getJobProfile, JobProfile } from "@/lib/api"
 import { ScoreBreakdown } from "@/components/charts/score-breakdown"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Button } from "@/components/ui/button"
@@ -65,6 +68,8 @@ export default function AnalysisPage() {
   const { toast } = useToast()
 
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null)
+  const [analysisHistory, setAnalysisHistory] = useState<AnalysisResult[]>([])
+  const [profileNames, setProfileNames] = useState<Record<number, string>>({})
   const [jobProfile, setJobProfile] = useState<JobProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -95,6 +100,34 @@ export default function AnalysisPage() {
 
         setAnalysis(result)
         setLoading(false)
+
+        const history = await getAnalysisHistoryByResume(authToken, resumeId).catch(() => [])
+        if (!cancelled) {
+          setAnalysisHistory(history)
+        }
+
+        const profileIds = Array.from(
+          new Set(
+            history
+              .map((entry) => entry.job_profile_id)
+              .filter((value): value is number => typeof value === "number")
+          )
+        )
+        if (profileIds.length > 0) {
+          const pairs = await Promise.all(
+            profileIds.map(async (profileId) => {
+              try {
+                const profile = await getJobProfile(authToken, profileId)
+                return [profileId, profile.title] as const
+              } catch {
+                return [profileId, `Role ${profileId}`] as const
+              }
+            })
+          )
+          if (!cancelled) {
+            setProfileNames(Object.fromEntries(pairs))
+          }
+        }
 
         if (result.job_profile_id) {
           getJobProfile(authToken, result.job_profile_id)
@@ -144,14 +177,38 @@ export default function AnalysisPage() {
     : ""
 
   const scoreRows = targeted
-    ? [
-        { label: "Skills Match", score: jobMatchResult!.skill_match_score, weight: "40%", tone: "primary" as const },
-        { label: "Experience Match", score: jobMatchResult!.experience_match_score, weight: "25%", tone: "success" as const },
-        { label: "Role Alignment", score: jobMatchResult!.role_alignment_score, weight: "15%", tone: "warning" as const },
-        { label: "Seniority Fit", score: jobMatchResult!.seniority_fit_score, weight: "10%", tone: "neutral" as const },
-        { label: "Resume Quality", score: jobMatchResult!.quality_score, weight: "10%", tone: "primary" as const },
-      ]
+    ? jobMatchResult?.dimension_scores?.length
+      ? jobMatchResult.dimension_scores.map((dimension) => ({
+          label: dimension.label,
+          score: dimension.score,
+          weight: `${dimension.weight.toFixed(0)}%`,
+          tone:
+            dimension.key === "skills_tools"
+              ? ("primary" as const)
+              : dimension.key === "responsibility_alignment"
+                ? ("success" as const)
+                : dimension.key === "domain_familiarity"
+                  ? ("warning" as const)
+                  : ("neutral" as const),
+        }))
+      : [
+          { label: "Skills Match", score: jobMatchResult!.skill_match_score, weight: "40%", tone: "primary" as const },
+          { label: "Experience Match", score: jobMatchResult!.experience_match_score, weight: "25%", tone: "success" as const },
+          { label: "Role Alignment", score: jobMatchResult!.role_alignment_score, weight: "15%", tone: "warning" as const },
+          { label: "Seniority Fit", score: jobMatchResult!.seniority_fit_score, weight: "10%", tone: "neutral" as const },
+          { label: "Resume Quality", score: jobMatchResult!.quality_score, weight: "10%", tone: "primary" as const },
+        ]
     : []
+
+  const rejectionRisks = jobMatchResult?.rejection_risks ?? []
+  const fastestFixes = jobMatchResult?.fastest_fixes ?? []
+  const missingEvidence = jobMatchResult?.missing_evidence ?? []
+  const rewriteSuggestions = jobMatchResult?.rewrite_suggestions ?? []
+  const atsKeywordMap = jobMatchResult?.ats_keyword_map ?? []
+  const comparisonRows = jobMatchResult?.resume_vs_jd_comparison ?? []
+  const multiRoleComparisons = analysisHistory
+    .filter((entry) => entry.status === "completed" && entry.job_match_result && entry.job_profile_id)
+    .slice(0, 4)
 
   const skillColumns = useMemo(() => {
     if (!jobMatchResult) return null
@@ -204,6 +261,15 @@ export default function AnalysisPage() {
       toast({ title: "Link copied", description: "Analysis URL is ready to share." })
     } catch {
       toast({ title: "Copy failed", description: "Unable to copy link.", variant: "destructive" })
+    }
+  }
+
+  async function copyText(value: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      toast({ title: "Copied", description: "Suggestion copied to clipboard." })
+    } catch {
+      toast({ title: "Copy failed", description: "Unable to copy text.", variant: "destructive" })
     }
   }
 
@@ -302,10 +368,20 @@ export default function AnalysisPage() {
               <SectionCard title="Score Breakdown" description="Weighted dimensions used to compute fit.">
                 <ScoreBreakdown scores={scoreRows} />
               </SectionCard>
-              <SectionCard title="Explanation Summary" description="Model rationale in plain language.">
-                <p className="text-sm leading-relaxed text-foreground">
-                  {analysis.job_match_result?.explanation_summary}
-                </p>
+              <SectionCard title="Recruiter Verdict" description="How this profile reads to a hiring team.">
+                <div className="space-y-3">
+                  <p className="text-sm leading-relaxed text-foreground">
+                    {jobMatchResult?.recruiter_verdict ?? analysis.job_match_result?.explanation_summary}
+                  </p>
+                  <div className="rounded-xl border border-border/80 bg-muted/30 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      Explanation summary
+                    </p>
+                    <p className="mt-1 text-sm leading-relaxed text-foreground">
+                      {analysis.job_match_result?.explanation_summary}
+                    </p>
+                  </div>
+                </div>
               </SectionCard>
             </div>
 
@@ -341,6 +417,38 @@ export default function AnalysisPage() {
               </SectionCard>
             </div>
 
+            <div className="grid gap-4 lg:grid-cols-2">
+              <SectionCard title="Why You Might Get Rejected" description="Likely recruiter blockers from this run.">
+                <ul className="space-y-2">
+                  {rejectionRisks.length > 0 ? (
+                    rejectionRisks.map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-sm text-foreground">
+                        <AlertCircle className="mt-0.5 h-4 w-4 text-rose-600" />
+                        {item}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-sm text-muted-foreground">No major rejection triggers identified.</li>
+                  )}
+                </ul>
+              </SectionCard>
+
+              <SectionCard title="Fastest Fixes" description="Highest-impact changes to improve match quickly.">
+                <ul className="space-y-2">
+                  {fastestFixes.length > 0 ? (
+                    fastestFixes.map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-sm text-foreground">
+                        <Lightbulb className="mt-0.5 h-4 w-4 text-amber-600" />
+                        {item}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-sm text-muted-foreground">No quick fixes available for this run.</li>
+                  )}
+                </ul>
+              </SectionCard>
+            </div>
+
             {skillColumns && (
               <SectionCard title="Skills Matrix" description="Matched, missing, and additional capabilities at a glance.">
                 <div className="grid gap-4 lg:grid-cols-3">
@@ -365,6 +473,120 @@ export default function AnalysisPage() {
                 </div>
               </SectionCard>
             )}
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <SectionCard title="Missing Evidence" description="Missing proof, not just missing keywords.">
+                <ul className="space-y-2">
+                  {missingEvidence.length > 0 ? (
+                    missingEvidence.map((item) => (
+                      <li key={item} className="flex items-start gap-2 text-sm text-foreground">
+                        <CircleDashed className="mt-0.5 h-4 w-4 text-slate-500" />
+                        {item}
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-sm text-muted-foreground">
+                      Evidence quality looks healthy for matched requirements.
+                    </li>
+                  )}
+                </ul>
+              </SectionCard>
+
+              <SectionCard title="ATS Keyword Placement" description="Where critical terms are present or missing.">
+                <div className="flex flex-wrap gap-2">
+                  {atsKeywordMap.length > 0 ? (
+                    atsKeywordMap.map((entry) => (
+                      <span
+                        key={`${entry.keyword}-${entry.location_hint}`}
+                        title={entry.evidence?.[0] ?? "No direct evidence snippet"}
+                        className={
+                          entry.status === "matched"
+                            ? "rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
+                            : "rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700"
+                        }
+                      >
+                        {entry.keyword} · {entry.location_hint}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-sm text-muted-foreground">No ATS keyword map available.</span>
+                  )}
+                </div>
+              </SectionCard>
+            </div>
+
+            <SectionCard title="Bullet Rewrite Suggestions" description="Copy-ready rewrites grounded in analysis evidence.">
+              <div className="space-y-3">
+                {rewriteSuggestions.length > 0 ? (
+                  rewriteSuggestions.map((item, index) => (
+                    <div key={`${item.requirement}-${index}`} className="rounded-xl border border-border/70 bg-muted/20 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{item.requirement}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{item.issue}</p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => copyText(item.example_bullet)}>
+                          <WandSparkles className="h-4 w-4" />
+                          Copy
+                        </Button>
+                      </div>
+                      <p className="mt-3 text-sm text-foreground">{item.recommendation}</p>
+                      <p className="mt-2 rounded-lg bg-background px-3 py-2 text-sm text-foreground/85">
+                        {item.example_bullet}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No rewrite suggestions generated for this run.</p>
+                )}
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Resume vs JD Comparison" description="Coverage of responsibility clusters.">
+              <div className="space-y-2">
+                {comparisonRows.length > 0 ? (
+                  comparisonRows.map((row) => (
+                    <div key={row.cluster} className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-foreground">{row.cluster}</p>
+                        <p className="text-sm font-semibold tabular-nums text-foreground">{row.coverage_score}%</p>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {row.matched_items}/{row.jd_items} responsibility signals matched
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No responsibility comparison available.</p>
+                )}
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Multi-Role Comparison" description="How this resume performs across role targets.">
+              {multiRoleComparisons.length > 0 ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {multiRoleComparisons.map((entry) => (
+                    <div key={entry.id} className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-foreground">
+                          {entry.job_profile_id ? profileNames[entry.job_profile_id] ?? `Role ${entry.job_profile_id}` : "General"}
+                        </p>
+                        <p className="text-sm font-semibold tabular-nums text-foreground">
+                          {entry.match_score ?? entry.job_match_result?.overall_match_score ?? "—"}%
+                        </p>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {entry.job_match_result?.recruiter_verdict ?? entry.job_match_result?.explanation_summary ?? "No summary available."}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Run this resume against additional job profiles to compare role fit side-by-side.
+                </p>
+              )}
+            </SectionCard>
           </>
         )}
 

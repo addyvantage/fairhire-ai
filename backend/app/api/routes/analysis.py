@@ -22,6 +22,7 @@ from app.schemas.job_profile import TargetedAnalysisRequest
 from app.services.analysis_orchestrator import AnalysisOrchestrator
 from app.services.async_analysis import (
     enqueue_analysis,
+    get_analysis_history_for_resume,
     enqueue_job_targeted_analysis,
     enqueue_resume_analysis,
     get_analysis_by_id,
@@ -215,6 +216,20 @@ async def get_analysis_by_resume(
     if analysis is None:
         raise HTTPException(status_code=404, detail="No analysis found for this resume")
     return _analysis_to_out(analysis)
+
+
+@router.get("/by-resume/{resume_id}/history", response_model=list[ResumeAnalysisOut])
+async def get_analysis_history(
+    resume_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[ResumeAnalysisOut]:
+    analyses = await get_analysis_history_for_resume(
+        user_id=user.id,
+        resume_id=resume_id,
+        db=db,
+    )
+    return [_analysis_to_out(analysis) for analysis in analyses]
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)

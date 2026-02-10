@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     embedding_cache_l1_size: int = 1000
     embedding_cache_ttl_seconds: int = 86400
 
+    # Optional local open-weights reasoner (llama.cpp compatible)
+    open_weights_reasoner_model_path: str = ""
+    open_weights_reasoner_max_tokens: int = 320
+    open_weights_reasoner_temperature: float = 0.1
+
     # Async job queue
     queue_name: str = "fairhire:analysis"
     async_job_retry_max: int = 3

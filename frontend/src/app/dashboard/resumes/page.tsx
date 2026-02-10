@@ -72,6 +72,7 @@ export default function ResumesPage() {
   const [loaded, setLoaded] = useState(false)
   const [analyzingIds, setAnalyzingIds] = useState<Set<number>>(new Set())
   const pollingRef = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map())
+  const pollMissesRef = useRef<Map<number, number>>(new Map())
 
   const [jobProfiles, setJobProfiles] = useState<JobProfile[]>([])
   const [lastUsedProfileId, setLastUsedProfileId] = useState<number | null>(null)
@@ -101,6 +102,7 @@ export default function ResumesPage() {
     if (!interval) return
     clearInterval(interval)
     pollingRef.current.delete(resumeId)
+    pollMissesRef.current.delete(resumeId)
     setAnalyzingIds((previous) => {
       const next = new Set(previous)
       next.delete(resumeId)
@@ -119,7 +121,15 @@ export default function ResumesPage() {
 
         try {
           const analysis = await getAnalysisByResume(authToken, resumeId)
-          if (!analysis) return
+          if (!analysis) {
+            const misses = (pollMissesRef.current.get(resumeId) ?? 0) + 1
+            pollMissesRef.current.set(resumeId, misses)
+            if (misses >= 8) {
+              stopPolling(resumeId)
+            }
+            return
+          }
+          pollMissesRef.current.set(resumeId, 0)
 
           setResumes((previous) =>
             previous.map((entry) => (entry.id === resumeId ? { ...entry, analysis } : entry))
@@ -184,6 +194,7 @@ export default function ResumesPage() {
     return () => {
       pollingRef.current.forEach((interval) => clearInterval(interval))
       pollingRef.current.clear()
+      pollMissesRef.current.clear()
     }
   }, [fetchResumes])
 

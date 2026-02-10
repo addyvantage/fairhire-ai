@@ -11,10 +11,45 @@ from app.api.deps import get_current_user
 from app.db.session import get_db_session
 from app.models.job_profile import JobProfile
 from app.models.user import User
-from app.schemas.job_profile import JobProfileCreate, JobProfileOut, JobProfileUpdate
+from app.schemas.job_profile import (
+    JobProfileCreate,
+    JobProfileOut,
+    JobProfileParseRequest,
+    JobProfileUpdate,
+    JobTargetPreview,
+)
 from app.services.jd_parser import JDParserService
 
 router = APIRouter()
+
+
+@router.post("/parse-preview", response_model=JobTargetPreview)
+async def parse_job_profile_preview(
+    payload: JobProfileParseRequest,
+    _user: User = Depends(get_current_user),
+) -> JobTargetPreview:
+    """Parse raw JD text and return a structured preview before creation."""
+    parser = JDParserService()
+    parsed = parser.parse(payload.raw_description, title_hint=payload.title)
+    return JobTargetPreview(
+        role_title=parsed.role_title,
+        normalized_title=parsed.normalized_title,
+        seniority_level=parsed.seniority_level,
+        years_experience_required=parsed.years_experience_required,
+        education_requirements=parsed.education_requirements,
+        certifications=parsed.certifications,
+        hard_requirements=parsed.hard_requirements,
+        soft_requirements=parsed.soft_requirements,
+        responsibilities=parsed.responsibilities,
+        tools_and_technologies=parsed.tools_and_technologies,
+        domain_keywords=parsed.domain_keywords,
+        soft_skills=parsed.soft_skills,
+        ats_keywords=parsed.ats_keywords,
+        responsibility_clusters=parsed.responsibility_clusters,
+        weight_map=parsed.weight_map,
+        required_skills=parsed.required_skills,
+        optional_skills=parsed.optional_skills,
+    )
 
 
 @router.post("/", response_model=JobProfileOut, status_code=status.HTTP_201_CREATED)

@@ -15,9 +15,11 @@ import {
 import { useAuth } from "@/lib/auth-context"
 import {
   JobProfile,
+  JobTargetPreview,
   createJobProfile,
   deleteJobProfile,
   listJobProfiles,
+  parseJobProfilePreview,
 } from "@/lib/api"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Button } from "@/components/ui/button"
@@ -75,6 +77,9 @@ export default function JobProfilesPage() {
 
   const [pasteTitle, setPasteTitle] = useState("")
   const [pasteText, setPasteText] = useState("")
+  const [parsePreview, setParsePreview] = useState<JobTargetPreview | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
 
   const [manualTitle, setManualTitle] = useState("")
   const [manualSeniority, setManualSeniority] = useState("")
@@ -104,6 +109,49 @@ export default function JobProfilesPage() {
   useEffect(() => {
     fetchProfiles()
   }, [fetchProfiles])
+
+  useEffect(() => {
+    if (!token || !openModal || createMode !== "paste") {
+      setPreviewLoading(false)
+      setPreviewError(null)
+      return
+    }
+    if (!pasteTitle.trim() || pasteText.trim().length < 80) {
+      setParsePreview(null)
+      setPreviewLoading(false)
+      setPreviewError(null)
+      return
+    }
+
+    let cancelled = false
+    const timeout = setTimeout(async () => {
+      setPreviewLoading(true)
+      setPreviewError(null)
+      try {
+        const preview = await parseJobProfilePreview(token, {
+          title: pasteTitle.trim(),
+          raw_description: pasteText.trim(),
+        })
+        if (!cancelled) {
+          setParsePreview(preview)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setParsePreview(null)
+          setPreviewError((error as Error).message)
+        }
+      } finally {
+        if (!cancelled) {
+          setPreviewLoading(false)
+        }
+      }
+    }, 450)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timeout)
+    }
+  }, [createMode, openModal, pasteText, pasteTitle, token])
 
   const sortedProfiles = useMemo(
     () =>
@@ -341,6 +389,62 @@ export default function JobProfilesPage() {
                       value={pasteText}
                       onChange={(event) => setPasteText(event.target.value)}
                     />
+                    <div className="rounded-xl border border-border/80 bg-muted/20 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-foreground">Role extraction preview</p>
+                        {previewLoading && (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Parsing job description…
+                          </span>
+                        )}
+                      </div>
+                      {previewError ? (
+                        <p className="mt-2 text-xs text-destructive">{previewError}</p>
+                      ) : null}
+                      {!parsePreview && !previewLoading && !previewError ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Paste a full job description to preview extracted role intelligence.
+                        </p>
+                      ) : null}
+                      {parsePreview ? (
+                        <div className="mt-3 space-y-3">
+                          <div className="grid gap-2 sm:grid-cols-3">
+                            <PreviewStat label="Seniority" value={parsePreview.seniority_level} />
+                            <PreviewStat
+                              label="Experience"
+                              value={
+                                parsePreview.years_experience_required.min != null
+                                  ? `${parsePreview.years_experience_required.min}-${parsePreview.years_experience_required.max ?? "?"} yrs`
+                                  : "Not specified"
+                              }
+                            />
+                            <PreviewStat
+                              label="Core tools"
+                              value={`${parsePreview.required_skills.length} required`}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                              Top hard requirements
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {parsePreview.hard_requirements.slice(0, 4).map((item) => (
+                                <span
+                                  key={item}
+                                  className="rounded-full bg-primary-soft px-2.5 py-1 text-xs text-primary"
+                                >
+                                  {item}
+                                </span>
+                              ))}
+                              {parsePreview.hard_requirements.length === 0 && (
+                                <span className="text-xs text-muted-foreground">No hard requirements detected yet.</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 ) : (
                   <div className="grid gap-4 md:grid-cols-2">
@@ -417,6 +521,15 @@ export default function JobProfilesPage() {
         )}
       </AnimatePresence>
     </DashboardLayout>
+  )
+}
+
+function PreviewStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
+      <p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-medium text-foreground">{value}</p>
+    </div>
   )
 }
 

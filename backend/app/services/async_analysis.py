@@ -478,6 +478,34 @@ async def get_latest_analysis_for_resume(
     return analysis
 
 
+async def get_analysis_history_for_resume(
+    user_id: int,
+    resume_id: int,
+    db: AsyncSession,
+    *,
+    limit: int = 10,
+) -> list[AnalysisRun]:
+    """Get recent targeted analysis runs for a resume."""
+    result = await db.execute(
+        select(AnalysisRun)
+        .where(
+            AnalysisRun.resume_id == resume_id,
+            AnalysisRun.user_id == user_id,
+            AnalysisRun.job_description_id.is_(None),
+            AnalysisRun.job_profile_id.is_not(None),
+        )
+        .order_by(AnalysisRun.id.desc())
+        .limit(limit)
+    )
+    analyses = list(result.scalars().all())
+    synced: list[AnalysisRun] = []
+    for analysis in analyses:
+        if analysis.status in IN_PROGRESS_STATUSES:
+            analysis = await _sync_rq_status(analysis, db)
+        synced.append(analysis)
+    return synced
+
+
 async def _sync_rq_status(analysis: AnalysisRun, db: AsyncSession) -> AnalysisRun:
     """Update AnalysisRun status from the live RQ job state."""
     if not analysis.job_id:

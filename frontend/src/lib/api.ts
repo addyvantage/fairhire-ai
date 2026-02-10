@@ -55,6 +55,48 @@ export type JobMatchResult = {
   gaps: string[];
   strengths: string[];
   explanation_summary: string;
+  recruiter_verdict?: string;
+  rejection_risks?: string[];
+  fastest_fixes?: string[];
+  matched_requirements?: Array<{
+    requirement: string;
+    category: "required" | "optional";
+    matched: boolean;
+    confidence: number;
+    evidence: string[];
+  }>;
+  missing_requirements?: Array<{
+    requirement: string;
+    category: "required" | "optional";
+    matched: boolean;
+    confidence: number;
+    evidence: string[];
+  }>;
+  missing_evidence?: string[];
+  rewrite_suggestions?: Array<{
+    requirement: string;
+    issue: string;
+    recommendation: string;
+    example_bullet: string;
+  }>;
+  ats_keyword_map?: Array<{
+    keyword: string;
+    status: "matched" | "missing";
+    location_hint: string;
+    evidence: string[];
+  }>;
+  resume_vs_jd_comparison?: Array<{
+    cluster: string;
+    jd_items: number;
+    matched_items: number;
+    coverage_score: number;
+  }>;
+  dimension_scores?: Array<{
+    key: string;
+    label: string;
+    score: number;
+    weight: number;
+  }>;
   details: {
     resume_skills: string[];
     matched_required: string[];
@@ -63,7 +105,35 @@ export type JobMatchResult = {
     extra_resume_skills: string[];
     experience_years_detected: number;
     cosine_similarity: number;
+    role_family?: string;
+    weights?: Record<string, number>;
+    domain_hits?: string[];
+    domain_missing?: string[];
+    evidence_map?: Record<string, string[]>;
   };
+};
+
+export type JobTargetPreview = {
+  role_title: string;
+  normalized_title: string;
+  seniority_level: string;
+  years_experience_required: {
+    min: number | null;
+    max: number | null;
+  };
+  education_requirements: string[];
+  certifications: string[];
+  hard_requirements: string[];
+  soft_requirements: string[];
+  responsibilities: string[];
+  tools_and_technologies: string[];
+  domain_keywords: string[];
+  soft_skills: string[];
+  ats_keywords: string[];
+  responsibility_clusters: Record<string, string[]>;
+  weight_map: Record<string, number>;
+  required_skills: string[];
+  optional_skills: string[];
 };
 
 export type AnalysisResult = {
@@ -254,6 +324,23 @@ export async function getAnalysisByResume(
   return response.json();
 }
 
+export async function getAnalysisHistoryByResume(
+  token: string,
+  resumeId: number
+): Promise<AnalysisResult[]> {
+  const response = await fetch(`${API_BASE_URL}/analysis/by-resume/${resumeId}/history`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch analysis history");
+  }
+
+  return response.json();
+}
+
 // ---------------------------------------------------------------------------
 // Job Profile API
 // ---------------------------------------------------------------------------
@@ -290,6 +377,25 @@ export async function createJobProfile(
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail || "Failed to create job profile");
+  }
+  return response.json();
+}
+
+export async function parseJobProfilePreview(
+  token: string,
+  payload: { title: string; raw_description: string }
+): Promise<JobTargetPreview> {
+  const response = await fetch(`${API_BASE_URL}/job-profiles/parse-preview`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to parse job description");
   }
   return response.json();
 }

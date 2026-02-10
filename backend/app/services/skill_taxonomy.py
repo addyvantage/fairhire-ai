@@ -5,6 +5,8 @@ Single source of truth for known skills and their categories.
 
 from __future__ import annotations
 
+import re
+
 # ---------------------------------------------------------------------------
 # Categorised skill sets
 # ---------------------------------------------------------------------------
@@ -54,3 +56,122 @@ SKILL_CATEGORIES: dict[str, set[str]] = {
 KNOWN_SKILLS: frozenset[str] = frozenset(
     skill for category in SKILL_CATEGORIES.values() for skill in category
 )
+
+
+SKILL_SYNONYMS: dict[str, set[str]] = {
+    "sql": {"structured query language", "mysql", "postgres", "postgresql", "t-sql"},
+    "python": {"python3", "py"},
+    "javascript": {"js", "ecmascript"},
+    "typescript": {"ts"},
+    "react": {"reactjs", "react.js"},
+    "next.js": {"nextjs", "next js"},
+    "node.js": {"node", "nodejs", "node js"},
+    "rest apis": {"rest api", "api integration", "http apis"},
+    "ci/cd": {"continuous integration", "continuous delivery", "continuous deployment", "cicd"},
+    "stakeholder management": {
+        "cross functional collaboration",
+        "cross-functional collaboration",
+        "executive communication",
+        "partner management",
+    },
+    "data visualization": {"dashboarding", "dashboards", "visual analytics"},
+    "machine learning": {"ml", "predictive modeling", "model development"},
+    "a/b testing": {"ab testing", "split testing", "experimentation"},
+    "power bi": {"powerbi"},
+    "tableau": {"tableau desktop"},
+    "excel": {"microsoft excel", "advanced excel"},
+}
+
+DOMAIN_KEYWORDS: dict[str, set[str]] = {
+    "engineering": {
+        "software",
+        "engineer",
+        "api",
+        "microservices",
+        "frontend",
+        "backend",
+        "platform",
+        "devops",
+    },
+    "data": {
+        "analytics",
+        "analyst",
+        "data",
+        "reporting",
+        "dashboard",
+        "etl",
+        "warehouse",
+        "kpi",
+    },
+    "finance": {
+        "financial",
+        "fp&a",
+        "forecast",
+        "budget",
+        "variance",
+        "p&l",
+        "valuation",
+        "reconciliation",
+    },
+    "consulting": {
+        "client",
+        "case",
+        "strategy",
+        "stakeholder",
+        "presentation",
+        "recommendation",
+        "problem-solving",
+    },
+    "operations": {
+        "operations",
+        "process",
+        "sop",
+        "logistics",
+        "supply chain",
+        "efficiency",
+        "throughput",
+    },
+}
+
+SOFT_SKILL_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "communication",
+        "leadership",
+        "stakeholder management",
+        "collaboration",
+        "problem solving",
+        "project management",
+        "analytical thinking",
+        "attention to detail",
+        "ownership",
+        "adaptability",
+        "critical thinking",
+    }
+)
+
+
+def normalize_term(value: str) -> str:
+    normalized = value.strip().lower()
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized
+
+
+def expand_skill_aliases(skill: str) -> set[str]:
+    canonical = normalize_term(skill)
+    aliases = set(SKILL_SYNONYMS.get(canonical, set()))
+    aliases.add(canonical)
+    return {normalize_term(alias) for alias in aliases if alias.strip()}
+
+
+def canonicalize_skill(skill: str) -> str:
+    candidate = normalize_term(skill)
+    if candidate in KNOWN_SKILLS:
+        return candidate
+
+    for canonical, aliases in SKILL_SYNONYMS.items():
+        if candidate == canonical:
+            return canonical
+        if candidate in {normalize_term(alias) for alias in aliases}:
+            return canonical
+
+    return candidate

@@ -193,6 +193,116 @@ TEMPLATES: list[dict] = [
         "years_experience_min": 2,
         "years_experience_max": 5,
     },
+    {
+        "title": "Financial Analyst",
+        "normalized_title": "financial analyst",
+        "seniority_level": "mid",
+        "required_skills": [
+            "excel", "sql", "data analysis", "statistics",
+            "data visualization", "communication", "stakeholder management",
+        ],
+        "optional_skills": [
+            "power bi", "tableau", "python", "financial modeling",
+            "forecasting", "budgeting", "variance analysis",
+        ],
+        "responsibilities": [
+            "Build and maintain recurring financial reports and KPI dashboards",
+            "Analyze budget vs actuals and explain key variances",
+            "Support forecast and planning cycles with scenario analysis",
+            "Partner with stakeholders to prioritize business questions",
+            "Translate analysis into clear recommendations for leadership",
+        ],
+        "years_experience_min": 2,
+        "years_experience_max": 6,
+    },
+    {
+        "title": "Risk Analyst",
+        "normalized_title": "risk analyst",
+        "seniority_level": "mid",
+        "required_skills": [
+            "sql", "excel", "data analysis", "statistics",
+            "communication", "stakeholder management",
+        ],
+        "optional_skills": [
+            "python", "tableau", "power bi", "a/b testing",
+            "monitoring", "project management",
+        ],
+        "responsibilities": [
+            "Monitor operational and financial risk indicators",
+            "Investigate anomalies and quantify risk exposure",
+            "Develop risk reporting packs for business stakeholders",
+            "Recommend controls and mitigation actions",
+            "Collaborate with cross-functional teams on remediation plans",
+        ],
+        "years_experience_min": 2,
+        "years_experience_max": 5,
+    },
+    {
+        "title": "Business Analyst",
+        "normalized_title": "business analyst",
+        "seniority_level": "mid",
+        "required_skills": [
+            "sql", "excel", "data analysis", "communication",
+            "stakeholder management", "project management",
+        ],
+        "optional_skills": [
+            "tableau", "power bi", "python", "jira",
+            "user research", "a/b testing",
+        ],
+        "responsibilities": [
+            "Gather requirements and translate them into clear specifications",
+            "Build decision-support reports and dashboards",
+            "Analyze business processes and identify bottlenecks",
+            "Facilitate alignment between technical and business teams",
+            "Track initiative outcomes against defined KPIs",
+        ],
+        "years_experience_min": 2,
+        "years_experience_max": 6,
+    },
+    {
+        "title": "Operations Analyst",
+        "normalized_title": "operations analyst",
+        "seniority_level": "mid",
+        "required_skills": [
+            "excel", "sql", "data analysis", "communication",
+            "project management", "stakeholder management",
+        ],
+        "optional_skills": [
+            "python", "tableau", "power bi", "statistics",
+            "monitoring", "process mapping",
+        ],
+        "responsibilities": [
+            "Measure operational performance and identify inefficiencies",
+            "Design and track process improvement initiatives",
+            "Build recurring reports for operational leadership",
+            "Standardize workflows and documentation",
+            "Coordinate cross-functional execution of process changes",
+        ],
+        "years_experience_min": 2,
+        "years_experience_max": 6,
+    },
+    {
+        "title": "Consulting Analyst",
+        "normalized_title": "consulting analyst",
+        "seniority_level": "mid",
+        "required_skills": [
+            "communication", "stakeholder management", "data analysis",
+            "excel", "project management", "problem solving",
+        ],
+        "optional_skills": [
+            "power bi", "tableau", "sql", "market research",
+            "technical writing", "presentation",
+        ],
+        "responsibilities": [
+            "Structure client problems and perform hypothesis-driven analysis",
+            "Build quantitative and qualitative workstreams",
+            "Develop executive-ready slides and recommendations",
+            "Coordinate stakeholder interviews and synthesis",
+            "Support implementation planning and impact tracking",
+        ],
+        "years_experience_min": 1,
+        "years_experience_max": 5,
+    },
 ]
 
 
