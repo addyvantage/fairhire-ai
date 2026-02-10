@@ -4,7 +4,7 @@ import json
 from functools import lru_cache
 from typing import Any
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import (
     DotEnvSettingsSource,
@@ -68,7 +68,11 @@ class Settings(BaseSettings):
     allowed_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     # Redis
-    redis_url: str = "redis://redis:6379/0"
+    redis_url: str = Field(
+        default="redis://redis:6379/0",
+        validation_alias=AliasChoices("REDIS_URL", "RQ_REDIS_URL"),
+    )
+    redis_socket_timeout_seconds: int = 600
 
     # Embedding
     embedding_model_name: str = "all-MiniLM-L6-v2"
@@ -79,6 +83,7 @@ class Settings(BaseSettings):
     queue_name: str = "fairhire:analysis"
     async_job_retry_max: int = 3
     async_job_retry_interval: list[int] = [10, 30, 60]
+    analysis_stale_after_minutes: int = 15
 
     # Worker
     worker_heartbeat_interval_seconds: int = 30

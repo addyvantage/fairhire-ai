@@ -34,7 +34,7 @@ def get_redis_connection() -> Redis:
             settings.redis_url,
             decode_responses=False,
             socket_connect_timeout=5,
-            socket_timeout=30,
+            socket_timeout=settings.redis_socket_timeout_seconds,
             socket_keepalive=True,
             retry_on_timeout=True,
             health_check_interval=15,

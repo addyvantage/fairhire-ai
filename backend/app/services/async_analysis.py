@@ -7,6 +7,7 @@ All database operations are async via SQLAlchemy.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from rq import Retry
 from sqlalchemy import select
@@ -30,6 +31,71 @@ from app.workers.queue import fetch_job, get_queue, get_redis_connection
 logger = logging.getLogger(__name__)
 
 
+IN_PROGRESS_STATUSES = ("pending", "queued", "running", "processing")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _last_activity_at(analysis: AnalysisRun) -> datetime:
+    """Best-effort activity timestamp for stale-lock detection."""
+    timestamp = analysis.started_at or analysis.created_at or _utc_now()
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=timezone.utc)
+    return timestamp
+
+
+async def _reset_stale_inflight(
+    db: AsyncSession,
+    analyses: list[AnalysisRun],
+    *,
+    stale_after_minutes: int,
+    stale_reason: str,
+) -> list[AnalysisRun]:
+    """Mark stale in-flight analyses as failed and return remaining active rows."""
+    cutoff = _utc_now() - timedelta(minutes=stale_after_minutes)
+    stale_ids: list[int] = []
+    active: list[AnalysisRun] = []
+
+    for analysis in analyses:
+        if _last_activity_at(analysis) < cutoff:
+            analysis.status = "failed"
+            analysis.error_message = stale_reason
+            analysis.completed_at = _utc_now()
+            stale_ids.append(analysis.id)
+        else:
+            active.append(analysis)
+
+    if stale_ids:
+        await db.commit()
+        logger.warning(
+            "Reset stale in-flight analyses",
+            extra={
+                "analysis_ids": stale_ids,
+                "stale_after_minutes": stale_after_minutes,
+            },
+        )
+
+    return active
+
+
+async def _mark_analysis_enqueue_failed(
+    db: AsyncSession,
+    analysis_id: int,
+    error_message: str,
+) -> None:
+    """Persist FAILED state if enqueueing fails after DB row creation."""
+    await db.rollback()
+    analysis = await db.get(AnalysisRun, analysis_id)
+    if analysis is None:
+        return
+    analysis.status = "failed"
+    analysis.error_message = error_message
+    analysis.completed_at = _utc_now()
+    await db.commit()
+
+
 # ---------------------------------------------------------------------------
 # Standalone resume analysis (new)
 # ---------------------------------------------------------------------------
@@ -51,16 +117,25 @@ async def enqueue_resume_analysis(
     if resume_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Resume not found")
 
+    settings = get_settings()
+
     # Check for existing in-flight analysis
     existing = await db.execute(
         select(AnalysisRun).where(
             AnalysisRun.resume_id == resume_id,
             AnalysisRun.user_id == user_id,
             AnalysisRun.job_description_id.is_(None),
-            AnalysisRun.status.in_(["queued", "processing"]),
+            AnalysisRun.status.in_(IN_PROGRESS_STATUSES),
         )
     )
-    if existing.scalar_one_or_none() is not None:
+    inflight = list(existing.scalars().all())
+    active_inflight = await _reset_stale_inflight(
+        db,
+        inflight,
+        stale_after_minutes=settings.analysis_stale_after_minutes,
+        stale_reason="stale lock reset",
+    )
+    if active_inflight:
         raise HTTPException(
             status_code=409,
             detail="An analysis is already in progress for this resume",
@@ -73,18 +148,24 @@ async def enqueue_resume_analysis(
         status="queued",
     )
     db.add(analysis)
+    await db.flush()
+    analysis_id = int(analysis.id)
     await db.commit()
-    await db.refresh(analysis)
+    if analysis.created_at is None:
+        await db.refresh(analysis, attribute_names=["created_at"])
+    logger.info(
+        "Queued resume analysis record created",
+        extra={"analysis_id": analysis_id, "status": analysis.status},
+    )
 
     # Enqueue RQ job
-    settings = get_settings()
     try:
         conn = get_redis_connection()
         queue = get_queue(connection=conn)
         rq_job = queue.enqueue(
             run_resume_analysis_job,
-            analysis.id,
-            job_id=f"resume-analysis-{analysis.id}",
+            analysis_id,
+            job_id=f"resume-analysis-{analysis_id}",
             retry=Retry(
                 max=settings.async_job_retry_max,
                 interval=settings.async_job_retry_interval,
@@ -93,18 +174,24 @@ async def enqueue_resume_analysis(
         )
         analysis.job_id = rq_job.id
         await db.commit()
-        await db.refresh(analysis)
         logger.info(
             "Resume analysis job enqueued",
-            extra={"analysis_id": analysis.id, "job_id": rq_job.id},
+            extra={"analysis_id": analysis_id, "job_id": rq_job.id},
         )
-    except RuntimeError as exc:
-        analysis.status = "failed"
-        analysis.error_message = f"Queue unavailable: {exc}"
-        await db.commit()
+    except Exception as exc:
+        await _mark_analysis_enqueue_failed(
+            db,
+            analysis_id=analysis_id,
+            error_message=f"Failed to enqueue resume analysis: {exc}",
+        )
+        if isinstance(exc, RuntimeError):
+            raise HTTPException(
+                status_code=503,
+                detail="Analysis queue is currently unavailable. Please try again later.",
+            ) from exc
         raise HTTPException(
-            status_code=503,
-            detail="Analysis queue is currently unavailable. Please try again later.",
+            status_code=500,
+            detail="Failed to enqueue analysis job. Please try again.",
         ) from exc
 
     return analysis
@@ -122,6 +209,8 @@ async def enqueue_job_targeted_analysis(
     db: AsyncSession,
 ) -> AnalysisRun:
     """Validate ownership, create a queued AnalysisRun with job_profile_id, and enqueue."""
+    settings = get_settings()
+
     # Validate resume ownership
     resume_result = await db.execute(
         select(Resume).where(Resume.id == resume_id, Resume.user_id == user_id)
@@ -145,10 +234,17 @@ async def enqueue_job_targeted_analysis(
             AnalysisRun.resume_id == resume_id,
             AnalysisRun.user_id == user_id,
             AnalysisRun.job_profile_id == job_profile_id,
-            AnalysisRun.status.in_(["queued", "processing"]),
+            AnalysisRun.status.in_(IN_PROGRESS_STATUSES),
         )
     )
-    if existing.scalar_one_or_none() is not None:
+    inflight = list(existing.scalars().all())
+    active_inflight = await _reset_stale_inflight(
+        db,
+        inflight,
+        stale_after_minutes=settings.analysis_stale_after_minutes,
+        stale_reason="stale lock reset",
+    )
+    if active_inflight:
         raise HTTPException(
             status_code=409,
             detail="A targeted analysis is already in progress for this resume and profile",
@@ -162,27 +258,34 @@ async def enqueue_job_targeted_analysis(
         status="queued",
     )
     db.add(analysis)
-    await db.commit()
-    await db.refresh(analysis)
+    await db.flush()
+    analysis_id = int(analysis.id)
 
     # Update user's last-used profile
-    user_result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    user_result = await db.execute(select(User).where(User.id == user_id))
     user_obj = user_result.scalar_one_or_none()
     if user_obj is not None:
         user_obj.last_job_profile_id = job_profile_id
-        await db.commit()
+    await db.commit()
+    if analysis.created_at is None:
+        await db.refresh(analysis, attribute_names=["created_at"])
+    logger.info(
+        "Queued targeted analysis record created",
+        extra={
+            "analysis_id": analysis_id,
+            "status": analysis.status,
+            "job_profile_id": job_profile_id,
+        },
+    )
 
     # Enqueue RQ job
-    settings = get_settings()
     try:
         conn = get_redis_connection()
         queue = get_queue(connection=conn)
         rq_job = queue.enqueue(
             run_job_targeted_analysis_job,
-            analysis.id,
-            job_id=f"targeted-analysis-{analysis.id}",
+            analysis_id,
+            job_id=f"targeted-analysis-{analysis_id}",
             retry=Retry(
                 max=settings.async_job_retry_max,
                 interval=settings.async_job_retry_interval,
@@ -191,22 +294,28 @@ async def enqueue_job_targeted_analysis(
         )
         analysis.job_id = rq_job.id
         await db.commit()
-        await db.refresh(analysis)
         logger.info(
             "Job-targeted analysis enqueued",
             extra={
-                "analysis_id": analysis.id,
+                "analysis_id": analysis_id,
                 "job_id": rq_job.id,
                 "job_profile_id": job_profile_id,
             },
         )
-    except RuntimeError as exc:
-        analysis.status = "failed"
-        analysis.error_message = f"Queue unavailable: {exc}"
-        await db.commit()
+    except Exception as exc:
+        await _mark_analysis_enqueue_failed(
+            db,
+            analysis_id=analysis_id,
+            error_message=f"Failed to enqueue targeted analysis: {exc}",
+        )
+        if isinstance(exc, RuntimeError):
+            raise HTTPException(
+                status_code=503,
+                detail="Analysis queue is currently unavailable. Please try again later.",
+            ) from exc
         raise HTTPException(
-            status_code=503,
-            detail="Analysis queue is currently unavailable. Please try again later.",
+            status_code=500,
+            detail="Failed to enqueue targeted analysis. Please try again.",
         ) from exc
 
     return analysis
@@ -245,8 +354,15 @@ async def enqueue_analysis(
         status="pending",
     )
     db.add(analysis)
+    await db.flush()
+    analysis_id = int(analysis.id)
     await db.commit()
-    await db.refresh(analysis)
+    if analysis.created_at is None:
+        await db.refresh(analysis, attribute_names=["created_at"])
+    logger.info(
+        "Queued JD-based analysis record created",
+        extra={"analysis_id": analysis_id, "status": analysis.status},
+    )
 
     settings = get_settings()
     try:
@@ -254,8 +370,8 @@ async def enqueue_analysis(
         queue = get_queue(connection=conn)
         rq_job = queue.enqueue(
             run_analysis_job,
-            analysis.id,
-            job_id=f"analysis-{analysis.id}",
+            analysis_id,
+            job_id=f"analysis-{analysis_id}",
             retry=Retry(
                 max=settings.async_job_retry_max,
                 interval=settings.async_job_retry_interval,
@@ -264,18 +380,24 @@ async def enqueue_analysis(
         )
         analysis.job_id = rq_job.id
         await db.commit()
-        await db.refresh(analysis)
         logger.info(
             "Analysis job enqueued",
-            extra={"analysis_id": analysis.id, "job_id": rq_job.id},
+            extra={"analysis_id": analysis_id, "job_id": rq_job.id},
         )
-    except RuntimeError as exc:
-        analysis.status = "failed"
-        analysis.error_message = f"Queue unavailable: {exc}"
-        await db.commit()
+    except Exception as exc:
+        await _mark_analysis_enqueue_failed(
+            db,
+            analysis_id=analysis_id,
+            error_message=f"Failed to enqueue JD analysis: {exc}",
+        )
+        if isinstance(exc, RuntimeError):
+            raise HTTPException(
+                status_code=503,
+                detail="Analysis queue is currently unavailable. Please try again later.",
+            ) from exc
         raise HTTPException(
-            status_code=503,
-            detail="Analysis queue is currently unavailable. Please try again later.",
+            status_code=500,
+            detail="Failed to enqueue analysis job. Please try again.",
         ) from exc
 
     return analysis
@@ -324,7 +446,7 @@ async def get_analysis_by_id(
     if analysis is None:
         return None
 
-    if analysis.status in ("queued", "processing"):
+    if analysis.status in IN_PROGRESS_STATUSES:
         analysis = await _sync_rq_status(analysis, db)
 
     return analysis
@@ -350,7 +472,7 @@ async def get_latest_analysis_for_resume(
     if analysis is None:
         return None
 
-    if analysis.status in ("queued", "processing"):
+    if analysis.status in IN_PROGRESS_STATUSES:
         analysis = await _sync_rq_status(analysis, db)
 
     return analysis
