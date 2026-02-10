@@ -20,9 +20,16 @@
   --color-border: hsl(240 5.9% 90%);
   --color-input: hsl(240 5.9% 90%);
   --color-ring: hsl(240 5.9% 10%);
-  --radius: 0.5rem;
+  --color-success: hsl(142 71% 45%);
+  --radius: 0.625rem;
 
-  --animate-in: enter 200ms ease-out;
+  /* Shadow depth hierarchy */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.03);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.03);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.06), 0 4px 6px -4px rgb(0 0 0 / 0.04);
+
+  --animate-in: enter 250ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-fade-in: fade-in 200ms ease-out;
 
   @keyframes enter {
@@ -37,12 +44,8 @@
   }
 
   @keyframes fade-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 }
 
@@ -55,7 +58,8 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-      Helvetica, Arial, sans-serif;
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+      Roboto, Helvetica, Arial, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }

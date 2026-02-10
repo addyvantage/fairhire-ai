@@ -7,11 +7,10 @@ export type LoginResponse = {
 };
 
 export type Resume = {
-  id: string;
-  filename: string;
-  status: "pending" | "processing" | "completed" | "failed";
-  uploaded_at: string;
-  match_score?: number;
+  id: number;
+  original_filename: string;
+  parsed_text: string;
+  created_at: string;
 };
 
 export type DashboardStats = {

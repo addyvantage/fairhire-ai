@@ -17,20 +17,22 @@ export function Sidebar() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b px-6 py-4">
+      <div className="px-5 py-5">
         <Link
           href="/dashboard"
-          className="text-base font-semibold tracking-tight text-foreground"
+          className="group flex items-center gap-2.5"
         >
-          FairHire
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background text-xs font-bold">
+            F
+          </div>
+          <span className="text-sm font-semibold tracking-tight text-foreground">
+            FairHire
+          </span>
         </Link>
-        <p className="text-[11px] text-muted-foreground mt-0.5">
-          Resume Intelligence
-        </p>
       </div>
 
-      <nav className="flex-1 px-3 py-4">
-        <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+      <nav className="flex-1 px-3 pt-2">
+        <p className="mb-2 px-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
           Navigation
         </p>
         <div className="space-y-0.5">
@@ -43,10 +45,10 @@ export function Sidebar() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150",
+                  "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-all duration-150",
                   isActive
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                    ? "bg-foreground/[0.05] text-foreground shadow-[var(--shadow-xs)]"
+                    : "text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground"
                 )}
               >
                 <item.icon className="h-4 w-4 shrink-0" />
@@ -60,7 +62,7 @@ export function Sidebar() {
       <div className="border-t px-3 py-3">
         <button
           onClick={logout}
-          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-secondary/50 hover:text-foreground"
+          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium text-muted-foreground transition-all duration-150 hover:bg-foreground/[0.03] hover:text-foreground"
         >
           <LogOut className="h-4 w-4 shrink-0" />
           Sign out

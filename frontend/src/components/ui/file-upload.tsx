@@ -1,37 +1,85 @@
 "use client"
 
-import { useRef } from "react"
+import { useCallback, useRef, useState } from "react"
 import { UploadCloud } from "lucide-react"
-import { Card } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 interface FileUploadProps {
   onFileSelect: (file: File) => void
   accept?: string
+  disabled?: boolean
 }
 
-export function FileUpload({ onFileSelect, accept }: FileUploadProps) {
+export function FileUpload({ onFileSelect, accept, disabled }: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!disabled) setIsDragOver(true)
+  }, [disabled])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }, [])
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDragOver(false)
+      if (disabled) return
+      const file = e.dataTransfer.files?.[0]
+      if (file) onFileSelect(file)
+    },
+    [onFileSelect, disabled]
+  )
 
   return (
-    <Card
-      onClick={() => inputRef.current?.click()}
-      className="border-dashed border-2 p-8 text-center bg-background transition-colors hover:bg-muted/30 cursor-pointer"
-    >
-      <UploadCloud className="mx-auto h-10 w-10 text-muted-foreground" />
-      <p className="mt-4 text-sm text-muted-foreground">
-        Drag & drop your resume here, or click to upload
-      </p>
-      <Button
-        variant="outline"
-        className="mt-4"
-        onClick={(e) => {
-          e.stopPropagation()
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => !disabled && inputRef.current?.click()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
           inputRef.current?.click()
-        }}
+        }
+      }}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={cn(
+        "group relative rounded-xl border-2 border-dashed px-6 py-10 text-center transition-all duration-200 cursor-pointer",
+        "bg-background hover:bg-muted/40 hover:border-muted-foreground/25",
+        isDragOver && "border-primary/40 bg-primary/[0.02] scale-[1.01]",
+        disabled && "pointer-events-none opacity-50"
+      )}
+    >
+      <div
+        className={cn(
+          "mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full transition-colors duration-200",
+          "bg-muted/60 group-hover:bg-muted",
+          isDragOver && "bg-primary/10"
+        )}
       >
-        Select File
-      </Button>
+        <UploadCloud
+          className={cn(
+            "h-5 w-5 transition-all duration-200",
+            "text-muted-foreground group-hover:text-foreground/70",
+            isDragOver && "text-primary scale-110"
+          )}
+        />
+      </div>
+      <p className="text-sm font-medium text-foreground/80">
+        {isDragOver ? "Drop your file here" : "Drop your resume here, or click to browse"}
+      </p>
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        PDF or DOCX, up to 10 MB
+      </p>
       <input
         ref={inputRef}
         type="file"
@@ -40,9 +88,10 @@ export function FileUpload({ onFileSelect, accept }: FileUploadProps) {
         onChange={(e) => {
           if (e.target.files?.[0]) {
             onFileSelect(e.target.files[0])
+            e.target.value = ""
           }
         }}
       />
-    </Card>
+    </div>
   )
 }

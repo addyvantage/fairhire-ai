@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
 
 interface StatItem {
@@ -14,33 +14,45 @@ interface SummaryCardProps {
 }
 
 export function SummaryCard({ title, subtitle, stats }: SummaryCardProps) {
+  const primary = stats[0]
+  const secondary = stats.slice(1)
+
   return (
-    <Card className="relative overflow-hidden border-border bg-background">
-      <div className="absolute left-0 top-0 h-full w-0.5 bg-primary/60" />
-      <CardHeader className="pb-3">
-        <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {title}
-        </CardTitle>
-        {subtitle && (
-          <p className="text-xs text-muted-foreground">{subtitle}</p>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {stats.map((stat, index) => (
-          <div
-            key={index}
-            className="flex items-center justify-between text-sm"
-          >
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <stat.icon className="h-4 w-4" />
-              <span>{stat.label}</span>
+    <div className="rounded-xl border bg-background p-5 shadow-[var(--shadow-xs)] transition-shadow duration-200 hover:shadow-[var(--shadow-sm)]">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </p>
+      {subtitle && (
+        <p className="mt-0.5 text-[11px] text-muted-foreground/60">{subtitle}</p>
+      )}
+
+      {primary && (
+        <div className="mt-3 flex items-baseline gap-2">
+          <span className="text-2xl font-semibold tracking-tight text-foreground tabular-nums">
+            {primary.value}
+          </span>
+          <span className="text-xs text-muted-foreground">{primary.label}</span>
+        </div>
+      )}
+
+      {secondary.length > 0 && (
+        <div className="mt-3 space-y-1.5 border-t pt-3">
+          {secondary.map((stat, index) => (
+            <div
+              key={index}
+              className="flex items-center justify-between text-sm"
+            >
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <stat.icon className={cn("h-3.5 w-3.5")} />
+                <span className="text-xs">{stat.label}</span>
+              </div>
+              <span className="text-xs font-medium text-foreground tabular-nums">
+                {stat.value}
+              </span>
             </div>
-            <span className="font-medium text-foreground">
-              {stat.value}
-            </span>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
