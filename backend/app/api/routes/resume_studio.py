@@ -7,7 +7,7 @@ from rq import Retry
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_current_user
@@ -577,12 +577,16 @@ async def tailor_studio_version(
     return _version_to_out(new_version, latest_export=None)
 
 
-@router.delete("/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/versions/{version_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def delete_studio_version(
     version_id: int,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> None:
+) -> Response:
     project, version = await _get_owned_version(db=db, user_id=user.id, version_id=version_id)
     version_rows = await db.execute(
         select(ResumeStudioVersion.id).where(ResumeStudioVersion.project_id == project.id)
@@ -594,6 +598,7 @@ async def delete_studio_version(
     await db.delete(version)
     project.updated_at = _utc_now()
     await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/versions/{version_id}/exports", response_model=list[StudioExportOut])
