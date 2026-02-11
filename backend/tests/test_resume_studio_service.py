@@ -96,3 +96,52 @@ def test_export_generates_pdf_and_docx(tmp_path: Path) -> None:
     assert pdf_path.stat().st_size > 100
     assert docx_path.exists()
     assert docx_path.stat().st_size > 100
+
+
+def test_structured_diff_detects_added_bullets_and_skills() -> None:
+    service = ResumeStudioService()
+    base = default_structured_resume("Base Resume")
+    base["skills"]["categories"] = [{"name": "Core", "items": ["SQL", "Excel"]}]
+    base["experience"]["items"] = [
+        {
+            "company": "A",
+            "role": "Analyst",
+            "location": "",
+            "start": "2022",
+            "end": "Present",
+            "bullets": ["Built monthly KPI dashboard."],
+            "tech": [],
+        }
+    ]
+
+    current = default_structured_resume("Tailored Resume")
+    current["skills"]["categories"] = [{"name": "Core", "items": ["SQL", "Excel", "Tableau"]}]
+    current["experience"]["items"] = [
+        {
+            "company": "A",
+            "role": "Analyst",
+            "location": "",
+            "start": "2022",
+            "end": "Present",
+            "bullets": [
+                "Built monthly KPI dashboard.",
+                "Presented insights to cross-functional stakeholders.",
+            ],
+            "tech": [],
+        }
+    ]
+    diff = service.compute_structured_diff(base, current)
+    assert "tableau" in diff["skills_added"]
+    assert diff["bullet_delta"] == 1
+    assert "presented insights to cross-functional stakeholders." in diff["added_bullets"]
+
+
+def test_render_resume_html_is_stable_for_same_input() -> None:
+    service = ResumeStudioService()
+    structured = default_structured_resume("Ava Smith")
+    structured["summary"] = "Operations analyst focused on reporting clarity."
+    structured["skills"]["categories"] = [{"name": "Core", "items": ["Excel", "SQL"]}]
+    first = service.render_resume_html(structured, template_name="modern_clean")
+    second = service.render_resume_html(structured, template_name="modern_clean")
+    assert first == second
+    assert "Ava Smith" in first

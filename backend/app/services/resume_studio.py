@@ -39,6 +39,8 @@ _SECTION_KEYS: dict[str, str] = {
 _DEFAULT_TEMPLATE_SETTINGS = {
     "font_scale": "normal",
     "density": "normal",
+    "accent": "slate",
+    "show_icons": False,
     "show_sections": {
         "summary": True,
         "skills": True,
@@ -244,16 +246,21 @@ class ResumeStudioService:
             "0.65rem",
         )
 
-        if template_name == "modern_clean":
-            accent = "#334155"
+        accent_palette = {
+            "slate": "#334155",
+            "indigo": "#4338ca",
+            "emerald": "#047857",
+        }
+        accent = accent_palette.get(str(settings.get("accent", "slate")).lower(), "#334155")
+
+        normalized_template = template_name.strip().lower()
+        if normalized_template == "modern_clean":
             section_border = "1px solid #e5e7eb"
             section_padding = "0.5rem 0 0.1rem"
-        elif template_name == "compact":
-            accent = "#0f172a"
+        elif normalized_template in {"compact", "compact_onepager"}:
             section_border = "1px solid #f1f5f9"
             section_padding = "0.22rem 0 0.1rem"
         else:
-            accent = "#1e293b"
             section_border = "1px solid #e2e8f0"
             section_padding = "0.45rem 0 0.1rem"
 
@@ -265,9 +272,19 @@ class ResumeStudioService:
         def section(title: str, body: str, key: str) -> str:
             if not settings["show_sections"].get(key, True) or not body.strip():
                 return ""
+            icon_map = {
+                "summary": "✦",
+                "skills": "◆",
+                "experience": "▣",
+                "projects": "◉",
+                "education": "▤",
+                "certifications": "✓",
+                "awards": "★",
+            }
+            prefix = f"{icon_map.get(key, '')} " if settings.get("show_icons") else ""
             return (
                 f"<section style='border-top:{section_border};padding:{section_padding};margin-top:{spacing};'>"
-                f"<h2 style='margin:0 0 0.4rem;font-size:0.86rem;letter-spacing:.08em;text-transform:uppercase;color:{accent};'>{html.escape(title)}</h2>"
+                f"<h2 style='margin:0 0 0.4rem;font-size:0.86rem;letter-spacing:.08em;text-transform:uppercase;color:{accent};'>{html.escape(prefix + title)}</h2>"
                 f"{body}</section>"
             )
 
@@ -353,6 +370,51 @@ class ResumeStudioService:
             + section("Awards", awards_html, "awards")
             + "</main></body></html>"
         )
+
+    def compute_structured_diff(
+        self,
+        base_structured: dict[str, Any],
+        current_structured: dict[str, Any],
+    ) -> dict[str, Any]:
+        base = self.ensure_schema(base_structured)
+        current = self.ensure_schema(current_structured)
+
+        base_skills = {
+            canonicalize_skill(skill)
+            for category in base["skills"].get("categories", [])
+            for skill in category.get("items", [])
+            if skill.strip()
+        }
+        current_skills = {
+            canonicalize_skill(skill)
+            for category in current["skills"].get("categories", [])
+            for skill in category.get("items", [])
+            if skill.strip()
+        }
+
+        base_bullets = self._collect_section_bullets(base)
+        current_bullets = self._collect_section_bullets(current)
+
+        added_bullets = sorted(current_bullets - base_bullets)
+        removed_bullets = sorted(base_bullets - current_bullets)
+        common_bullets = sorted(current_bullets.intersection(base_bullets))
+
+        return {
+            "keywords_added": sorted(current_skills - base_skills),
+            "skills_added": sorted(current_skills - base_skills),
+            "skills_removed": sorted(base_skills - current_skills),
+            "sections_changed": sorted(
+                {
+                    section
+                    for section in ("summary", "skills", "experience", "projects", "education", "certifications", "awards")
+                    if base.get(section) != current.get(section)
+                }
+            ),
+            "bullet_delta": len(added_bullets) - len(removed_bullets),
+            "added_bullets": added_bullets,
+            "removed_bullets": removed_bullets,
+            "shared_bullets": common_bullets,
+        }
 
     def tailor_resume(
         self,
@@ -697,6 +759,20 @@ class ResumeStudioService:
         else:
             role = stripped
         return role, company, date_start, date_end
+
+    def _collect_section_bullets(self, structured: dict[str, Any]) -> set[str]:
+        bullets: set[str] = set()
+        for item in structured["experience"].get("items", []):
+            for bullet in item.get("bullets", []):
+                text = bullet.strip().lower()
+                if text:
+                    bullets.add(text)
+        for item in structured["projects"].get("items", []):
+            for bullet in item.get("bullets", []):
+                text = bullet.strip().lower()
+                if text:
+                    bullets.add(text)
+        return bullets
 
     def _compute_ats_keywords(self, structured: dict[str, Any]) -> list[str]:
         keywords: list[str] = []

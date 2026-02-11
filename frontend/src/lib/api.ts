@@ -546,6 +546,16 @@ export type StudioProject = {
   latest_version_kind: StudioVersionKind | null;
   latest_version_created_at: string | null;
   tailored_tags: string[];
+  versions_count: number;
+  last_export_status: "queued" | "processing" | "completed" | "failed" | null;
+};
+
+export type StudioExportSummary = {
+  id: number;
+  format: "pdf" | "docx";
+  status: "queued" | "processing" | "completed" | "failed";
+  created_at: string;
+  completed_at: string | null;
 };
 
 export type StudioVersion = {
@@ -561,6 +571,8 @@ export type StudioVersion = {
   score_snapshot_json: Record<string, unknown> | null;
   template_name: string;
   template_settings_json: Record<string, unknown> | null;
+  version_label: string | null;
+  latest_export: StudioExportSummary | null;
   created_at: string;
 };
 
@@ -586,6 +598,20 @@ export function makeStudioExportDownloadUrl(exportId: number): string {
   return `${API_BASE_URL}/studio/exports/${exportId}/download`;
 }
 
+export async function downloadStudioExportBlob(
+  token: string,
+  exportId: number
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/studio/exports/${exportId}/download`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to download export");
+  }
+  return response.blob();
+}
+
 export async function createStudioProject(
   token: string,
   payload: {
@@ -605,6 +631,26 @@ export async function createStudioProject(
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail || "Failed to create studio project");
+  }
+  return response.json();
+}
+
+export async function updateStudioProject(
+  token: string,
+  projectId: number,
+  payload: { title: string }
+): Promise<StudioProject> {
+  const response = await fetch(`${API_BASE_URL}/studio/projects/${projectId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to update studio project");
   }
   return response.json();
 }
@@ -679,6 +725,20 @@ export async function createStudioVersion(
     throw new Error(body?.detail || "Failed to create studio version");
   }
   return response.json();
+}
+
+export async function deleteStudioVersion(
+  token: string,
+  versionId: number
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/studio/versions/${versionId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to delete version");
+  }
 }
 
 export async function updateStudioVersion(
@@ -760,6 +820,20 @@ export async function getStudioExport(
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail || "Failed to fetch export status");
+  }
+  return response.json();
+}
+
+export async function listStudioVersionExports(
+  token: string,
+  versionId: number
+): Promise<StudioExport[]> {
+  const response = await fetch(`${API_BASE_URL}/studio/versions/${versionId}/exports`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail || "Failed to fetch version exports");
   }
   return response.json();
 }

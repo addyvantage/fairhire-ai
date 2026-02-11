@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rq import Retry
@@ -17,10 +18,12 @@ from app.models.resume_studio import ResumeStudioExport, ResumeStudioProject, Re
 from app.models.user import User
 from app.schemas.resume_studio import (
     StudioExportOut,
+    StudioExportSummary,
     StudioImportResponse,
     StudioProjectCreate,
     StudioProjectDetailOut,
     StudioProjectOut,
+    StudioProjectUpdate,
     StudioTailorRequest,
     StudioVersionCreate,
     StudioVersionOut,
@@ -37,6 +40,8 @@ def _project_to_out(
     project: ResumeStudioProject,
     latest_version: ResumeStudioVersion | None,
     tailored_tags: list[str],
+    versions_count: int = 0,
+    last_export_status: str | None = None,
 ) -> StudioProjectOut:
     return StudioProjectOut(
         id=project.id,
@@ -50,11 +55,53 @@ def _project_to_out(
         latest_version_kind=latest_version.kind if latest_version else None,
         latest_version_created_at=latest_version.created_at if latest_version else None,
         tailored_tags=tailored_tags,
+        versions_count=versions_count,
+        last_export_status=last_export_status,
     )
 
 
-def _version_to_out(version: ResumeStudioVersion) -> StudioVersionOut:
-    return StudioVersionOut.model_validate(version)
+def _version_to_out(
+    version: ResumeStudioVersion,
+    latest_export: ResumeStudioExport | None = None,
+) -> StudioVersionOut:
+    label = None
+    if isinstance(version.template_settings_json, dict):
+        raw_label = version.template_settings_json.get("version_label")
+        if isinstance(raw_label, str) and raw_label.strip():
+            label = raw_label.strip()
+
+    if not label and version.kind == "tailored":
+        role_title = (version.jd_structured_json or {}).get("role_title")
+        if isinstance(role_title, str) and role_title.strip():
+            label = f"{role_title.strip()} — {version.created_at.strftime('%b %d')}"
+
+    export_summary = None
+    if latest_export is not None:
+        export_summary = StudioExportSummary(
+            id=latest_export.id,
+            format=latest_export.format,
+            status=latest_export.status,
+            created_at=latest_export.created_at,
+            completed_at=latest_export.completed_at,
+        )
+
+    return StudioVersionOut(
+        id=version.id,
+        project_id=version.project_id,
+        kind=version.kind,
+        job_profile_id=version.job_profile_id,
+        jd_text_hash=version.jd_text_hash,
+        jd_structured_json=version.jd_structured_json,
+        resume_structured_json=version.resume_structured_json,
+        resume_render_html=version.resume_render_html,
+        resume_plain_text=version.resume_plain_text,
+        score_snapshot_json=version.score_snapshot_json,
+        template_name=version.template_name,
+        template_settings_json=version.template_settings_json,
+        version_label=label,
+        latest_export=export_summary,
+        created_at=version.created_at,
+    )
 
 
 def _export_to_out(export: ResumeStudioExport) -> StudioExportOut:
@@ -112,6 +159,27 @@ async def _get_owned_version(
     return project, version
 
 
+async def _get_latest_exports_by_version(
+    db: AsyncSession,
+    version_ids: list[int],
+) -> dict[int, ResumeStudioExport]:
+    if not version_ids:
+        return {}
+    result = await db.execute(
+        select(ResumeStudioExport)
+        .where(ResumeStudioExport.version_id.in_(version_ids))
+        .order_by(desc(ResumeStudioExport.created_at), desc(ResumeStudioExport.id))
+    )
+    latest: dict[int, ResumeStudioExport] = {}
+    for export in result.scalars().all():
+        latest.setdefault(export.version_id, export)
+    return latest
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 @router.post("/projects", response_model=StudioProjectOut, status_code=status.HTTP_201_CREATED)
 async def create_studio_project(
     payload: StudioProjectCreate,
@@ -154,7 +222,53 @@ async def create_studio_project(
     await db.commit()
     await db.refresh(project)
     await db.refresh(version)
-    return _project_to_out(project=project, latest_version=version, tailored_tags=[])
+    return _project_to_out(
+        project=project,
+        latest_version=version,
+        tailored_tags=[],
+        versions_count=1,
+        last_export_status=None,
+    )
+
+
+@router.patch("/projects/{project_id}", response_model=StudioProjectOut)
+async def update_studio_project(
+    project_id: int,
+    payload: StudioProjectUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> StudioProjectOut:
+    project = await _get_owned_project(db=db, user_id=user.id, project_id=project_id)
+    project.title = payload.title.strip()
+    project.updated_at = _utc_now()
+    await db.commit()
+    await db.refresh(project)
+
+    latest_result = await db.execute(
+        select(ResumeStudioVersion)
+        .where(ResumeStudioVersion.project_id == project.id)
+        .order_by(desc(ResumeStudioVersion.created_at), desc(ResumeStudioVersion.id))
+        .limit(1)
+    )
+    latest_version = latest_result.scalar_one_or_none()
+
+    versions_count_result = await db.execute(
+        select(ResumeStudioVersion.id).where(ResumeStudioVersion.project_id == project.id)
+    )
+    version_ids = [row[0] for row in versions_count_result.all()]
+    latest_exports = await _get_latest_exports_by_version(db=db, version_ids=version_ids)
+    last_export_status = (
+        latest_exports.get(latest_version.id).status
+        if latest_version is not None and latest_version.id in latest_exports
+        else None
+    )
+    return _project_to_out(
+        project=project,
+        latest_version=latest_version,
+        tailored_tags=[],
+        versions_count=len(version_ids),
+        last_export_status=last_export_status,
+    )
 
 
 @router.get("/projects", response_model=list[StudioProjectOut])
@@ -180,7 +294,9 @@ async def list_studio_projects(
     versions = list(versions_result.scalars().all())
     latest_by_project: dict[int, ResumeStudioVersion] = {}
     tags_by_project: dict[int, list[str]] = {project_id: [] for project_id in project_ids}
+    count_by_project: dict[int, int] = {project_id: 0 for project_id in project_ids}
     for version in versions:
+        count_by_project[version.project_id] = count_by_project.get(version.project_id, 0) + 1
         latest_by_project.setdefault(version.project_id, version)
         if version.kind == "tailored":
             role = (
@@ -189,12 +305,23 @@ async def list_studio_projects(
                 or "Tailored"
             )
             tags_by_project[version.project_id].append(str(role))
+    latest_exports_by_version = await _get_latest_exports_by_version(
+        db=db,
+        version_ids=[version.id for version in versions],
+    )
 
     return [
         _project_to_out(
             project=project,
             latest_version=latest_by_project.get(project.id),
             tailored_tags=tags_by_project.get(project.id, [])[:3],
+            versions_count=count_by_project.get(project.id, 0),
+            last_export_status=(
+                latest_exports_by_version[latest_by_project[project.id].id].status
+                if latest_by_project.get(project.id) is not None
+                and latest_by_project[project.id].id in latest_exports_by_version
+                else None
+            ),
         )
         for project in projects
     ]
@@ -213,6 +340,10 @@ async def get_studio_project_detail(
         .order_by(desc(ResumeStudioVersion.created_at), desc(ResumeStudioVersion.id))
     )
     versions = list(versions_result.scalars().all())
+    latest_exports_by_version = await _get_latest_exports_by_version(
+        db=db,
+        version_ids=[version.id for version in versions],
+    )
     latest = versions[0] if versions else None
     tags = [
         str(((version.jd_structured_json or {}).get("role_title") or "Tailored"))
@@ -220,8 +351,21 @@ async def get_studio_project_detail(
         if version.kind == "tailored"
     ]
     return StudioProjectDetailOut(
-        project=_project_to_out(project=project, latest_version=latest, tailored_tags=tags[:3]),
-        versions=[_version_to_out(version) for version in versions],
+        project=_project_to_out(
+            project=project,
+            latest_version=latest,
+            tailored_tags=tags[:3],
+            versions_count=len(versions),
+            last_export_status=(
+                latest_exports_by_version[latest.id].status
+                if latest is not None and latest.id in latest_exports_by_version
+                else None
+            ),
+        ),
+        versions=[
+            _version_to_out(version, latest_export=latest_exports_by_version.get(version.id))
+            for version in versions
+        ],
     )
 
 
@@ -282,14 +426,25 @@ async def import_into_studio_project(
         template_settings_json=None,
     )
     project.source_type = source_type
+    project.updated_at = _utc_now()
     db.add(version)
     await db.commit()
     await db.refresh(project)
     await db.refresh(version)
+    version_count_result = await db.execute(
+        select(ResumeStudioVersion.id).where(ResumeStudioVersion.project_id == project.id)
+    )
+    version_count = len(version_count_result.all())
 
     return StudioImportResponse(
-        project=_project_to_out(project=project, latest_version=version, tailored_tags=[]),
-        version=_version_to_out(version),
+        project=_project_to_out(
+            project=project,
+            latest_version=version,
+            tailored_tags=[],
+            versions_count=version_count,
+            last_export_status=None,
+        ),
+        version=_version_to_out(version, latest_export=None),
     )
 
 
@@ -344,9 +499,10 @@ async def create_studio_version(
         template_settings_json=template_settings,
     )
     db.add(version)
+    project.updated_at = _utc_now()
     await db.commit()
     await db.refresh(version)
-    return _version_to_out(version)
+    return _version_to_out(version, latest_export=None)
 
 
 @router.patch("/versions/{version_id}", response_model=StudioVersionOut)
@@ -356,7 +512,7 @@ async def update_studio_version(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> StudioVersionOut:
-    _project, version = await _get_owned_version(db=db, user_id=user.id, version_id=version_id)
+    project, version = await _get_owned_version(db=db, user_id=user.id, version_id=version_id)
     service = ResumeStudioService()
     structured = service.ensure_schema(payload.resume_structured_json.model_dump())
     template_name = payload.template_name or version.template_name
@@ -371,10 +527,12 @@ async def update_studio_version(
     )
     version.template_name = template_name
     version.template_settings_json = template_settings
+    project.updated_at = _utc_now()
 
     await db.commit()
     await db.refresh(version)
-    return _version_to_out(version)
+    latest_export_map = await _get_latest_exports_by_version(db=db, version_ids=[version.id])
+    return _version_to_out(version, latest_export=latest_export_map.get(version.id))
 
 
 @router.post("/versions/{version_id}/tailor", response_model=StudioVersionOut, status_code=status.HTTP_201_CREATED)
@@ -413,9 +571,45 @@ async def tailor_studio_version(
         template_settings_json=template_settings,
     )
     db.add(new_version)
+    project.updated_at = _utc_now()
     await db.commit()
     await db.refresh(new_version)
-    return _version_to_out(new_version)
+    return _version_to_out(new_version, latest_export=None)
+
+
+@router.delete("/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_studio_version(
+    version_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    project, version = await _get_owned_version(db=db, user_id=user.id, version_id=version_id)
+    version_rows = await db.execute(
+        select(ResumeStudioVersion.id).where(ResumeStudioVersion.project_id == project.id)
+    )
+    version_ids = [row[0] for row in version_rows.all()]
+    if len(version_ids) <= 1:
+        raise HTTPException(status_code=409, detail="At least one version must remain in a project")
+
+    await db.delete(version)
+    project.updated_at = _utc_now()
+    await db.commit()
+
+
+@router.get("/versions/{version_id}/exports", response_model=list[StudioExportOut])
+async def list_studio_version_exports(
+    version_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[StudioExportOut]:
+    _project, version = await _get_owned_version(db=db, user_id=user.id, version_id=version_id)
+    result = await db.execute(
+        select(ResumeStudioExport)
+        .where(ResumeStudioExport.version_id == version.id)
+        .order_by(desc(ResumeStudioExport.created_at), desc(ResumeStudioExport.id))
+    )
+    exports = list(result.scalars().all())
+    return [_export_to_out(export) for export in exports]
 
 
 @router.post("/versions/{version_id}/export", response_model=StudioExportOut, status_code=status.HTTP_202_ACCEPTED)

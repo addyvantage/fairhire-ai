@@ -85,6 +85,18 @@ class StudioProjectCreate(BaseModel):
     base_resume_id: Optional[int] = None
 
 
+class StudioProjectUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+
+
+class StudioExportSummary(BaseModel):
+    id: int
+    format: str
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
 class StudioProjectOut(BaseModel):
     id: int
     user_id: int
@@ -97,6 +109,8 @@ class StudioProjectOut(BaseModel):
     latest_version_kind: Optional[str] = None
     latest_version_created_at: Optional[datetime] = None
     tailored_tags: list[str] = Field(default_factory=list)
+    versions_count: int = 0
+    last_export_status: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -136,6 +150,8 @@ class StudioVersionOut(BaseModel):
     score_snapshot_json: Optional[dict[str, Any]] = None
     template_name: str
     template_settings_json: Optional[dict[str, Any]] = None
+    version_label: Optional[str] = None
+    latest_export: Optional[StudioExportSummary] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
