@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
+from typing import Iterable
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,12 +103,24 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
 settings = get_settings()
 app = FastAPI(title=settings.project_name, lifespan=lifespan)
 
+
+def _normalize_allowed_origins(raw_origins: Iterable[str] | str | None) -> list[str]:
+    if raw_origins is None:
+        return []
+    if isinstance(raw_origins, str):
+        return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+    return [origin.strip() for origin in raw_origins if isinstance(origin, str) and origin.strip()]
+
+
+allowed_origins = _normalize_allowed_origins(settings.allowed_origins)
+
 # Middleware is applied in reverse registration order (last registered = outermost).
 # CORSMiddleware must be outermost so preflight requests work before anything else.
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"^https://([A-Za-z0-9-]+\.)*vercel\.app(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
