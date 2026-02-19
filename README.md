@@ -97,6 +97,22 @@ These execution paths enable long-running LLM-backed document analysis tasks to 
 
 > Containerized API + worker runtime deployed using Docker Compose to simulate a multi-service staging environment for async resume analysis workflows.
 
+### Containerized Multi-Service Runtime
+
+Docker Compose is used to orchestrate the full async resume analysis runtime locally, simulating a multi-service staging environment.
+
+This runtime includes:
+- FastAPI backend service
+- Redis broker for async job orchestration
+- RQ background worker
+- PostgreSQL datastore
+- Prometheus metrics service
+- Grafana observability dashboards
+
+![Docker Runtime](docs/screenshots/fairhire-docker-runtime.png)
+
+This setup allows inference-heavy resume analysis workloads to be executed asynchronously across isolated worker processes without blocking synchronous API request paths.
+
 All services are defined in `docker-compose.yml` and orchestrated via a minimal `Makefile` interface.
 
 ### Quick Start
