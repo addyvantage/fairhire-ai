@@ -46,6 +46,15 @@ services:
       UPLOAD_DIR: /app/app/storage/uploads
       STUDIO_EXPORT_DIR: /app/app/storage/exports
       LOG_FORMAT: console
+      MAX_QUEUE_DEPTH: 200
+      JOB_TTL_SECONDS: 1800
+      MAX_ATTEMPTS: 3
+      RETRY_BACKOFF_BASE_SECONDS: 10
+      JOB_HARD_TIMEOUT_SECONDS: 300
+      JOB_STEP_TIMEOUT_SECONDS: 120
+      MAX_INPUT_CHARS: 20000
+      MAX_LLM_CALLS_PER_JOB: 5
+      ESTIMATED_COST_PER_CALL: 0.002
     volumes:
       - ./backend/app:/app/app
       - upload_data:/app/app/storage/uploads
@@ -79,6 +88,15 @@ services:
       RQ_REDIS_URL: redis://redis:6379/0
       STUDIO_EXPORT_DIR: /app/app/storage/exports
       LOG_FORMAT: console
+      MAX_QUEUE_DEPTH: 200
+      JOB_TTL_SECONDS: 1800
+      MAX_ATTEMPTS: 3
+      RETRY_BACKOFF_BASE_SECONDS: 10
+      JOB_HARD_TIMEOUT_SECONDS: 300
+      JOB_STEP_TIMEOUT_SECONDS: 120
+      MAX_INPUT_CHARS: 20000
+      MAX_LLM_CALLS_PER_JOB: 5
+      ESTIMATED_COST_PER_CALL: 0.002
     volumes:
       - ./backend/app:/app/app
       - export_data:/app/app/storage/exports

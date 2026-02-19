@@ -13,6 +13,7 @@ from app.schemas.analysis import (
     AnalysisRequest,
     AnalysisResponse,
     AsyncAnalysisResponse,
+    JobCancelResponse,
     JobStatusResponse,
     ResumeAnalysisOut,
     ResumeAnalysisQueued,
@@ -21,11 +22,12 @@ from app.schemas.analysis import (
 from app.schemas.job_profile import TargetedAnalysisRequest
 from app.services.analysis_orchestrator import AnalysisOrchestrator
 from app.services.async_analysis import (
+    cancel_analysis_job,
     enqueue_analysis,
-    get_analysis_history_for_resume,
     enqueue_job_targeted_analysis,
     enqueue_resume_analysis,
     get_analysis_by_id,
+    get_analysis_history_for_resume,
     get_job_status,
     get_latest_analysis_for_resume,
 )
@@ -52,6 +54,13 @@ def _analysis_to_out(analysis: AnalysisRun) -> ResumeAnalysisOut:
         extracted_metadata=extracted_metadata,
         job_match_result=job_match_result,
         error_message=analysis.error_message,
+        last_error=analysis.last_error,
+        cancelled=analysis.cancelled,
+        expires_at=analysis.expires_at,
+        attempts=analysis.attempts,
+        max_attempts=analysis.max_attempts,
+        llm_calls_used=analysis.llm_calls_used,
+        cost_estimate_usd=analysis.cost_estimate_usd,
         started_at=analysis.started_at,
         completed_at=analysis.completed_at,
         created_at=analysis.created_at,
@@ -87,6 +96,9 @@ async def trigger_resume_analysis(
         analysis_id=analysis.id,
         status=analysis.status,
         created_at=analysis.created_at,
+        expires_at=analysis.expires_at,
+        attempts=analysis.attempts,
+        max_attempts=analysis.max_attempts,
     )
 
 
@@ -115,6 +127,9 @@ async def trigger_targeted_analysis(
         analysis_id=analysis.id,
         status=analysis.status,
         created_at=analysis.created_at,
+        expires_at=analysis.expires_at,
+        attempts=analysis.attempts,
+        max_attempts=analysis.max_attempts,
     )
 
 
@@ -193,6 +208,9 @@ async def submit_async_analysis(
         job_id=analysis.job_id,
         status=analysis.status,
         created_at=analysis.created_at,
+        expires_at=analysis.expires_at,
+        attempts=analysis.attempts,
+        max_attempts=analysis.max_attempts,
     )
 
 
@@ -251,7 +269,33 @@ async def poll_job_status(
         overall_score=analysis.overall_score,
         result_payload=analysis.result_payload,
         error_message=analysis.error_message,
+        last_error=analysis.last_error,
         created_at=analysis.created_at,
+        expires_at=analysis.expires_at,
+        cancelled=analysis.cancelled,
+        attempts=analysis.attempts,
+        max_attempts=analysis.max_attempts,
+        llm_calls_used=analysis.llm_calls_used,
+        cost_estimate_usd=analysis.cost_estimate_usd,
+    )
+
+
+@router.post("/jobs/{analysis_id}/cancel", response_model=JobCancelResponse)
+async def cancel_job(
+    analysis_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> JobCancelResponse:
+    analysis = await cancel_analysis_job(
+        user_id=user.id,
+        analysis_id=analysis_id,
+        db=db,
+    )
+    return JobCancelResponse(
+        analysis_id=analysis.id,
+        status=analysis.status,
+        cancelled=analysis.cancelled,
+        completed_at=analysis.completed_at,
     )
 
 

@@ -6,11 +6,13 @@ from typing import Iterable
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from sqlalchemy import text
 
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
+from app.core.metrics import CONTENT_TYPE_LATEST, render_metrics
 from app.db.base import Base
 from app.db.session import engine
 import app.models  # noqa: F401
@@ -42,6 +44,14 @@ _SCHEMA_MIGRATIONS = [
     "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS job_profile_id INTEGER REFERENCES job_profiles(id) ON DELETE SET NULL",
     # Remember last-used job profile per user
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_job_profile_id INTEGER REFERENCES job_profiles(id) ON DELETE SET NULL",
+    # Runtime safeguards metadata for async jobs
+    "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ",
+    "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS cancelled BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 3",
+    "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS last_error TEXT",
+    "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS llm_calls_used INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS cost_estimate_usd DOUBLE PRECISION NOT NULL DEFAULT 0",
 ]
 
 
@@ -127,3 +137,8 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(content=render_metrics(), media_type=CONTENT_TYPE_LATEST)

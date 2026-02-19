@@ -102,6 +102,52 @@ See `backend/.env.example` for documentation of all available settings.
 | `EMBEDDING_MODEL_NAME`    | `all-MiniLM-L6-v2`        | sentence-transformers model           |
 | `QUEUE_NAME`              | `fairhire:analysis`        | RQ queue name                         |
 | `LOG_FORMAT`              | `json`                     | `json` or `console`                   |
+| `MAX_QUEUE_DEPTH`         | `200`                      | Admission control threshold (HTTP 429) |
+| `JOB_TTL_SECONDS`         | `1800`                     | Per-job expiry time (seconds)         |
+| `MAX_ATTEMPTS`            | `3`                        | Total worker attempts per job         |
+| `RETRY_BACKOFF_BASE_SECONDS` | `10`                   | Exponential retry base (10, 20, 40...) |
+| `JOB_HARD_TIMEOUT_SECONDS` | `300`                     | Wall-clock execution ceiling          |
+| `JOB_STEP_TIMEOUT_SECONDS` | `120`                     | Per-step timeout where feasible       |
+| `MAX_INPUT_CHARS`         | `20000`                    | Input length guardrail for analysis   |
+| `MAX_LLM_CALLS_PER_JOB`   | `5`                        | Per-job LLM call budget cap           |
+| `ESTIMATED_COST_PER_CALL` | `0.002`                    | Heuristic USD estimate per LLM call   |
+
+## Async Runtime Safeguards
+
+The async analysis pipeline includes production-style runtime guardrails:
+
+- **Queue backpressure / admission control**
+  - API checks queue depth before enqueue.
+  - If `queue_depth >= MAX_QUEUE_DEPTH`, API returns `HTTP 429` with retry guidance.
+- **Cancellation + stale handling**
+  - Each `analysis_runs` row stores `expires_at` and `cancelled`.
+  - New endpoint: `POST /api/v1/analysis/jobs/{analysis_id}/cancel` (idempotent).
+  - Worker checks cancel/expiry before heavy work and between major steps.
+  - Terminal statuses include `cancelled` and `expired`.
+- **Retries with bounded backoff**
+  - Worker tracks `attempts`, `max_attempts`, and `last_error` in DB.
+  - Transient failures are retried with exponential backoff based on `RETRY_BACKOFF_BASE_SECONDS`.
+  - Non-transient failures are marked failed without additional retries.
+- **Timeout ceilings**
+  - `JOB_HARD_TIMEOUT_SECONDS` enforces wall-clock job deadlines.
+  - `JOB_STEP_TIMEOUT_SECONDS` bounds long-running async steps where feasible.
+  - Timeout terminal status is `timeout`.
+- **Budget guardrails (truthful + lightweight)**
+  - `MAX_INPUT_CHARS` rejects oversized resume/JD inputs at enqueue and in worker.
+  - `MAX_LLM_CALLS_PER_JOB` caps LLM calls inside worker execution.
+  - Worker tracks `llm_calls_used` and `cost_estimate_usd` per job.
+  - `cost_estimate_usd` is heuristic: `llm_calls_used * ESTIMATED_COST_PER_CALL`.
+  - Over-budget terminal status is `budget_exceeded`.
+- **Metrics / observability**
+  - Exposed at `GET /metrics` for Prometheus scraping.
+  - Includes:
+    - `queue_depth`
+    - `jobs_created_total`
+    - `jobs_cancelled_total`
+    - `jobs_expired_total`
+    - `jobs_timed_out_total`
+    - `jobs_retried_total`
+    - `job_duration_seconds`
 
 ## Project Structure
 

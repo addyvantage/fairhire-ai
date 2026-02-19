@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from app.core.config import get_settings
+from app.services.llm_budget import BudgetExceededError, consume_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class LocalReasoner:
 
         prompt = self._build_prompt(context)
         try:
+            consume_llm_call()
             completion = llm.create_completion(
                 prompt=prompt,
                 max_tokens=self.settings.open_weights_reasoner_max_tokens,
@@ -67,6 +69,8 @@ class LocalReasoner:
             if not isinstance(payload, dict):
                 return None
             return payload
+        except BudgetExceededError:
+            raise
         except Exception:
             logger.warning("Local reasoner generation failed", exc_info=True)
             return None

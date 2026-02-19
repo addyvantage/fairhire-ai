@@ -37,6 +37,9 @@ class AsyncAnalysisResponse(BaseModel):
     job_id: str
     status: str
     created_at: datetime
+    expires_at: Optional[datetime] = None
+    attempts: int = 0
+    max_attempts: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -50,7 +53,14 @@ class JobStatusResponse(BaseModel):
     overall_score: Optional[float] = None
     result_payload: Optional[dict] = None
     error_message: Optional[str] = None
+    last_error: Optional[str] = None
     created_at: datetime
+    expires_at: Optional[datetime] = None
+    cancelled: bool = False
+    attempts: int = 0
+    max_attempts: int = 0
+    llm_calls_used: int = 0
+    cost_estimate_usd: float = 0.0
 
     model_config = {"from_attributes": True}
 
@@ -69,6 +79,9 @@ class ResumeAnalysisQueued(BaseModel):
     analysis_id: int
     status: str
     created_at: datetime
+    expires_at: Optional[datetime] = None
+    attempts: int = 0
+    max_attempts: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -84,8 +97,24 @@ class ResumeAnalysisOut(BaseModel):
     extracted_metadata: Optional[dict] = None
     job_match_result: Optional[dict] = None
     error_message: Optional[str] = None
+    last_error: Optional[str] = None
+    cancelled: bool = False
+    expires_at: Optional[datetime] = None
+    attempts: int = 0
+    max_attempts: int = 0
+    llm_calls_used: int = 0
+    cost_estimate_usd: float = 0.0
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class JobCancelResponse(BaseModel):
+    analysis_id: int
+    status: str
+    cancelled: bool
+    completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

@@ -91,6 +91,18 @@ class Settings(BaseSettings):
     async_job_retry_max: int = 3
     async_job_retry_interval: list[int] = [10, 30, 60]
     analysis_stale_after_minutes: int = 15
+    max_queue_depth: int = 200
+    job_ttl_seconds: int = 1800
+    max_attempts: int = Field(
+        default=3,
+        validation_alias=AliasChoices("MAX_ATTEMPTS", "ASYNC_JOB_RETRY_MAX"),
+    )
+    retry_backoff_base_seconds: int = 10
+    job_hard_timeout_seconds: int = 300
+    job_step_timeout_seconds: int = 120
+    max_input_chars: int = 20000
+    max_llm_calls_per_job: int = 5
+    estimated_cost_per_call: float = 0.002
 
     # Worker
     worker_heartbeat_interval_seconds: int = 30

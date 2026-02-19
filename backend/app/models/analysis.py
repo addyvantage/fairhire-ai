@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -33,3 +33,10 @@ class AnalysisRun(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    attempts: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    max_attempts: Mapped[int] = mapped_column(nullable=False, default=3, server_default="3")
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    llm_calls_used: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    cost_estimate_usd: Mapped[float] = mapped_column(nullable=False, default=0.0, server_default="0")
