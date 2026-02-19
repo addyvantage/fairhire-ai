@@ -2,7 +2,7 @@
 
 # ── One-command startup ──────────────────────────────────────────────
 dev: ## Start all services (db, redis, backend, worker, frontend, prometheus, grafana)
-	docker compose up --build -d
+	docker-compose up --build -d
 	@echo ""
 	@echo "FairHire-AI is starting..."
 	@echo "  Backend API:   http://localhost:8000"
@@ -15,31 +15,31 @@ dev: ## Start all services (db, redis, backend, worker, frontend, prometheus, gr
 
 # ── Build ────────────────────────────────────────────────────────────
 build: ## Build all images without starting
-	docker compose build
+	docker-compose build
 
 # ── Stop & cleanup ───────────────────────────────────────────────────
 stop: ## Stop all services
-	docker compose down
+	docker-compose down
 
 clean: ## Stop all services and remove volumes
-	docker compose down -v
+	docker-compose down -v
 
 # ── Logs ─────────────────────────────────────────────────────────────
 logs: ## Tail logs for all services
-	docker compose logs -f
+	docker-compose logs -f
 
 logs-backend: ## Tail backend logs
-	docker compose logs -f backend
+	docker-compose logs -f backend
 
 logs-worker: ## Tail worker logs
-	docker compose logs -f worker
+	docker-compose logs -f worker
 
 logs-redis: ## Tail redis logs
-	docker compose logs -f redis
+	docker-compose logs -f redis
 
 # ── Status ───────────────────────────────────────────────────────────
 ps: ## Show running services
-	docker compose ps
+	docker-compose ps
 
 health: ## Run healthcheck script against the running stack
 	python scripts/healthcheck.py
